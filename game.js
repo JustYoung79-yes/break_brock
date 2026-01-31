@@ -1961,7 +1961,9 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 document.addEventListener('mozfullscreenchange', onFullscreenChange);
 document.addEventListener('MSFullscreenChange', onFullscreenChange);
 
-async function closeOptions() {
+function closeOptions() {
+    const panel = document.getElementById('optionsPanel');
+    if (panel) panel.classList.add('hidden');
     try {
         if (gameRunning) gamePaused = false;
         const paddleEl = document.getElementById('paddleSpeed');
@@ -1995,13 +1997,9 @@ async function closeOptions() {
             bricks = createBricks();
             draw();
         }
-        await saveOptionsToAccount();
-        const panel = document.getElementById('optionsPanel');
-        if (panel) panel.classList.add('hidden');
+        saveOptionsToAccount().catch(e => console.warn('옵션 저장 오류:', e));
     } catch (e) {
         console.error('옵션 닫기 오류:', e);
-        const panel = document.getElementById('optionsPanel');
-        if (panel) panel.classList.add('hidden');
     }
 }
 const optionsCloseBtn = document.getElementById('optionsCloseBtn');
