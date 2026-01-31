@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>벽돌깨기 게임</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Noto+Sans+KR:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            font-family: 'Noto Sans KR', sans-serif;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            position: relative;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 16px;
+            box-shadow: 
+                0 0 60px rgba(138, 43, 226, 0.3),
+                inset 0 0 60px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(138, 43, 226, 0.5);
+        }
+        
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            color: #e0e0ff;
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 1.8rem;
+            text-shadow: 0 0 20px rgba(138, 43, 226, 0.8);
+        }
+        
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            color: #b8b8ff;
+            font-size: 0.95rem;
+        }
+        
+        .info-bar span {
+            font-weight: 700;
+        }
+        
+        canvas {
+            display: block;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 8px;
+            cursor: none;
+        }
+        
+        .controls {
+            margin-top: 15px;
+            text-align: center;
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 16px;
+            color: white;
+            z-index: 10;
+        }
+        
+        .overlay.hidden {
+            display: none;
+        }
+        
+        .overlay h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2rem;
+            margin-bottom: 20px;
+            text-shadow: 0 0 30px rgba(138, 43, 226, 0.8);
+        }
+        
+        .overlay p {
+            margin-bottom: 25px;
+            font-size: 1.1rem;
+            color: #b8b8ff;
+        }
+        
+        #loginOverlay {
+            background: rgba(255, 255, 255, 0.95);
+        }
+        #loginOverlay, #loginOverlay h2, #loginOverlay p {
+            color: #000;
+        }
+        #loginOverlay .account-input {
+            color: #000;
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(0, 0, 0, 0.3);
+        }
+        #loginOverlay .account-input::placeholder {
+            color: rgba(0,0,0,0.5);
+        }
+        #loginOverlay .btn-outline {
+            color: #000;
+            border-color: rgba(0, 0, 0, 0.5);
+        }
+        #loginOverlay .btn-outline:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        #loginOverlay .btn-toggle-pw {
+            color: #000;
+        }
+        
+        .btn {
+            padding: 14px 35px;
+            font-size: 1.1rem;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-small {
+            padding: 8px 20px;
+            font-size: 0.9rem;
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 2px solid rgba(102, 126, 234, 0.6);
+            color: #b8b8ff;
+        }
+        
+        .btn-outline:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .account-input {
+            padding: 12px 20px;
+            font-size: 1rem;
+            border-radius: 8px;
+            border: 2px solid rgba(138, 43, 226, 0.5);
+            background: rgba(102, 126, 234, 0.2);
+            color: white;
+            width: 200px;
+            text-align: center;
+        }
+        
+        .account-input::placeholder {
+            color: rgba(184, 184, 255, 0.5);
+        }
+        
+        .input-with-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 8px 0;
+            justify-content: center;
+        }
+        
+        .input-with-toggle .account-input {
+            margin: 0;
+        }
+        
+        .btn-toggle-pw {
+            padding: 10px 14px;
+            font-size: 1rem;
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(138, 43, 226, 0.5);
+            border-radius: 8px;
+            color: #b8b8ff;
+            cursor: pointer;
+        }
+        
+        .btn-toggle-pw:hover {
+            background: rgba(102, 126, 234, 0.5);
+        }
+        
+        .password-match-msg {
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        
+        .password-match-msg.error {
+            color: #ff6b6b;
+        }
+        
+        .password-match-msg.ok {
+            color: #48dbfb;
+        }
+        
+        .options-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 20;
+            overflow-y: auto;
+        }
+        
+        .options-panel.hidden {
+            display: none;
+        }
+        
+        .options-panel h2 {
+            margin-bottom: 25px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        
+        .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 400px;
+            margin-bottom: 18px;
+            color: #b8b8ff;
+        }
+        
+        .option-row label {
+            flex: 1;
+        }
+        
+        .option-row select,
+        .option-row input[type="range"] {
+            flex: 1;
+            max-width: 200px;
+            margin-left: 15px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(138, 43, 226, 0.5);
+            color: white;
+        }
+        
+        .option-row input[type="range"] {
+            padding: 0;
+        }
+        
+        .option-value {
+            min-width: 40px;
+            text-align: right;
+        }
+        
+        .header-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            position: relative;
+            z-index: 15;
+        }
+        
+        .header-buttons h1 {
+            flex: 1;
+            margin: 0;
+        }
+        
+        .overlay-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .ranking-box {
+            background: rgba(0,0,0,0.5);
+            border-radius: 8px;
+            padding: 15px 25px;
+            margin: 15px 0;
+            min-width: 200px;
+            text-align: left;
+        }
+        
+        .ranking-box h3 {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: #b8b8ff;
+        }
+        
+        .ranking-box ol {
+            padding-left: 20px;
+            color: #e0e0ff;
+        }
+        
+        .ranking-box li {
+            margin: 5px 0;
+        }
+        
+        .first-place {
+            font-size: 1.5rem;
+            color: #ffd700;
+            margin: 15px 0;
+            animation: pulse 0.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header-buttons">
+            <h1>🎮 벽돌깨기</h1>
+            <button class="btn btn-small" id="optionsBtn">옵션</button>
+        </div>
+        <div class="info-bar">
+            <span>스테이지: <span id="stage">1</span></span>
+            <span>점수: <span id="score">0</span></span>
+            <span>생명: <span id="lives">3</span></span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
+        
+        <div id="loginOverlay" class="overlay">
+            <h2>🎮 벽돌깨기</h2>
+            <p>계정을 선택하세요</p>
+            <select id="accountSelect" class="account-input" style="width:220px; margin:10px 0;">
+                <option value="">-- 계정 선택 --</option>
+            </select>
+            <div class="input-with-toggle" style="margin:10px 0;">
+                <input type="password" id="passwordInput" placeholder="비밀번호" maxlength="30" class="account-input">
+                <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="loginBtn">로그인</button>
+                <button class="btn btn-small btn-outline" id="createAccountBtn">계정 새로 만들기</button>
+                <button class="btn btn-small btn-outline" id="deleteAccountBtn">계정 삭제</button>
+                <button class="btn btn-small btn-outline" id="findPasswordBtn">비밀번호 찾기</button>
+            </div>
+        </div>
+        
+        <div id="startOverlay" class="overlay hidden">
+            <h2>벽돌깨기</h2>
+            <p>모든 벽돌을 깨면 승리! <span id="currentAccountDisplay"></span></p>
+            <div class="overlay-buttons" style="margin-bottom:15px;">
+                <button class="btn" id="startBtn">게임 시작</button>
+                <button class="btn btn-small btn-outline" id="editAccountBtn">계정 정보 수정</button>
+            </div>
+        </div>
+        
+        <div id="gameOverOverlay" class="overlay hidden">
+            <h2>게임 오버</h2>
+            <p>최종 점수: <span id="finalScore">0</span></p>
+            <div id="gameOverFirstPlace" class="first-place hidden"></div>
+            <div id="rankingDisplay" class="ranking-box"></div>
+            <div class="overlay-buttons">
+                <button class="btn" id="continueBtn">이어서 하기</button>
+                <button class="btn" id="newGameBtn">새로 시작</button>
+                <button class="btn btn-small btn-outline" id="resetRankingBtn">점수 초기화</button>
+            </div>
+        </div>
+        
+        <div id="winOverlay" class="overlay hidden">
+            <h2>🎉 승리!</h2>
+            <p>축하합니다! 전투에서 승리했습니다</p>
+            <p>최종 점수: <span id="winScore">0</span></p>
+            <div id="winRankingDisplay" class="ranking-box"></div>
+            <div id="firstPlaceCelebration" class="first-place hidden"></div>
+            <div class="overlay-buttons">
+                <button class="btn" id="playAgainBtn">다시 하기</button>
+            </div>
+        </div>
+        
+        <div id="stageMsgOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.7);">
+            <h2 id="stageMsgText"></h2>
+        </div>
+        
+        <div id="createAccountModal" class="overlay hidden" style="z-index:25;">
+            <h2>계정 새로 만들기</h2>
+            <input type="text" id="newAccountName" placeholder="계정 이름" maxlength="20" class="account-input" style="margin:8px 0;">
+            <div class="input-with-toggle">
+                <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
+                <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div>
+                <div class="input-with-toggle">
+                    <input type="password" id="newPasswordConfirm" placeholder="비밀번호 확인" maxlength="30" class="account-input">
+                    <button type="button" class="btn-toggle-pw" id="toggleNewPasswordConfirm" title="비밀번호 보기">👁</button>
+                </div>
+                <p id="passwordMatchMsg" class="password-match-msg" style="display:none;"></p>
+            </div>
+            <input type="text" id="newQuestion" placeholder="비밀번호 찾기 질문 (예: 어릴적 별명은?)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="newHint" placeholder="힌트 (예: 초등학교 때 불렸던 이름)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="newAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="createAccountSubmitBtn">생성</button>
+                <button class="btn btn-small btn-outline" id="createAccountCancelBtn">취소</button>
+            </div>
+        </div>
+        
+        <div id="passwordPromptModal" class="overlay hidden" style="z-index:25;">
+            <h2 id="passwordPromptTitle">비밀번호 입력</h2>
+            <p id="passwordPromptDesc" style="margin:10px 0; color:#b8b8ff;"></p>
+            <div class="input-with-toggle">
+                <input type="password" id="passwordPromptInput" placeholder="비밀번호" maxlength="30" class="account-input" style="margin:10px 0;">
+                <button type="button" class="btn-toggle-pw" id="togglePasswordPrompt" title="비밀번호 보기">👁</button>
+            </div>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="passwordPromptConfirmBtn">확인</button>
+                <button class="btn btn-small btn-outline" id="passwordPromptCancelBtn">취소</button>
+            </div>
+        </div>
+        
+        <div id="editAccountModal" class="overlay hidden" style="z-index:25;">
+            <h2>계정 정보 수정</h2>
+            <p id="editAccountNameDisplay" style="margin:8px 0; color:#b8b8ff;"></p>
+            <div class="input-with-toggle">
+                <input type="password" id="editCurrentPassword" placeholder="현재 비밀번호" maxlength="30" class="account-input" style="margin:8px 0;">
+                <button type="button" class="btn-toggle-pw" id="toggleEditCurrentPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div class="input-with-toggle">
+                <input type="password" id="editNewPassword" placeholder="새 비밀번호 (변경 시에만 입력)" maxlength="30" class="account-input" style="margin:8px 0;">
+                <button type="button" class="btn-toggle-pw" id="toggleEditNewPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div>
+                <div class="input-with-toggle">
+                    <input type="password" id="editNewPasswordConfirm" placeholder="새 비밀번호 확인" maxlength="30" class="account-input" style="margin:8px 0;">
+                    <button type="button" class="btn-toggle-pw" id="toggleEditNewPasswordConfirm" title="비밀번호 보기">👁</button>
+                </div>
+                <p id="editPasswordMatchMsg" class="password-match-msg" style="display:none;"></p>
+            </div>
+            <input type="text" id="editQuestion" placeholder="비밀번호 찾기 질문" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="editHint" placeholder="힌트" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="editAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="editAccountSubmitBtn">저장</button>
+                <button class="btn btn-small btn-outline" id="editAccountCancelBtn">취소</button>
+            </div>
+        </div>
+        
+        <div id="findPasswordModal" class="overlay hidden" style="z-index:25;">
+            <h2>비밀번호 찾기</h2>
+            <select id="findPasswordAccountSelect" class="account-input" style="width:220px; margin:10px 0;">
+                <option value="">-- 계정 선택 --</option>
+            </select>
+            <p id="findPasswordQuestion" style="margin:10px 0; color:#b8b8ff; display:none;"></p>
+            <p id="findPasswordHint" style="margin:5px 0; color:#888; font-size:0.9rem; display:none;"></p>
+            <input type="text" id="findPasswordAnswer" placeholder="질문에 대한 답 입력" maxlength="30" class="account-input" style="margin:10px 0; display:none;">
+            <p id="findPasswordResult" style="margin:15px 0; color:#ffd700; font-weight:bold; display:none;"></p>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="findPasswordSubmitBtn">확인</button>
+                <button class="btn btn-small btn-outline" id="findPasswordCancelBtn">닫기</button>
+            </div>
+        </div>
+        
+        <div id="optionsPanel" class="options-panel hidden">
+            <h2>⚙️ 옵션</h2>
+            <div class="option-row">
+                <label>판 속도</label>
+                <input type="range" id="paddleSpeed" min="5" max="25" value="12">
+                <span class="option-value" id="paddleSpeedVal">12</span>
+            </div>
+            <div class="option-row">
+                <label>공 속도</label>
+                <input type="range" id="ballSpeed" min="3" max="15" value="3">
+                <span class="option-value" id="ballSpeedVal">3</span>
+            </div>
+            <div class="option-row">
+                <label>블럭 수</label>
+                <select id="blockCount">
+                    <option value="small">적음 (5×8)</option>
+                    <option value="medium" selected>보통 (6×10)</option>
+                    <option value="large">많음 (8×12)</option>
+                </select>
+            </div>
+            <div class="option-row">
+                <label>화면 크기</label>
+                <select id="screenSize">
+                    <option value="small">작음 (640×480)</option>
+                    <option value="medium" selected>보통 (800×600)</option>
+                    <option value="large">큼 (960×720)</option>
+                </select>
+            </div>
+            <button class="btn" id="optionsCloseBtn" style="margin-top:20px;">닫기</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
