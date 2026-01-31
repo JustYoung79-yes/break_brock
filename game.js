@@ -147,6 +147,8 @@ let balls = [];
 let bullets = [];
 let bossBullets = [];
 let hasBulletPower = false;
+let bulletAutoFireFrame = 0;
+const BULLET_AUTO_FIRE_INTERVAL = 12;
 let savedGameState = null;
 let currentAccount = '';
 let bricksHitThisFrame = new Set();
@@ -405,8 +407,6 @@ canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
     if (gameRunning && !gamePaused && !ballLaunched && e.changedTouches.length > 0) {
         launchBall();
-    } else if (gameRunning && !gamePaused && hasBulletPower && e.changedTouches.length > 0) {
-        shootBullet();
     }
 }, { passive: false });
 
@@ -438,7 +438,7 @@ document.addEventListener('keydown', (e) => {
     if (['ArrowLeft', 'ArrowRight'].includes(e.key)) lastInputMethod = 'keyboard';
     if (e.key === ' ' && gameRunning && !gamePaused) {
         if (!ballLaunched) launchBall();
-        else if (hasBulletPower) shootBullet();
+        else if (hasBulletPower && options.difficulty === 'difficult' && !isMobile()) shootBullet();
     }
 });
 
@@ -488,6 +488,13 @@ function launchBall() {
     ballLaunched = true;
 }
 
+function updateBulletFireButtonVisibility() {
+    const btn = document.getElementById('bulletFireBtn');
+    if (!btn) return;
+    const show = gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'difficult' && isMobile();
+    btn.style.display = show ? '' : 'none';
+}
+
 function shootBullet() {
     if (!hasBulletPower) return;
     bullets.push({
@@ -510,6 +517,28 @@ function spawnFallingItem(x, y, type) {
         type: type,
         color: '#e8a54a'
     });
+}
+
+function playBrickBreakSound() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 440;
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.05);
+    } catch (e) {}
+}
+
+function vibrateBrickBreak() {
+    if (isMobile() && navigator.vibrate) {
+        try { navigator.vibrate(15); } catch (e) {}
+    }
 }
 
 function playItemPickupSound() {
@@ -623,6 +652,7 @@ function applyItemEffect(type) {
         case 'BULLET':
             hasBulletPower = true;
             activeItems.push({ type: 'bullet', duration: 600 });
+            updateBulletFireButtonVisibility();
             break;
         case 'MAGNET':
             activeItems.push({ type: 'magnet', duration: 600 });
@@ -634,12 +664,18 @@ function applyItemEffect(type) {
         case 'LASER':
             const topRow = bricks.findIndex(row => row.some(b => b && b.visible));
             if (topRow >= 0) {
+                let laserCount = 0;
                 bricks[topRow].forEach(b => {
                     if (b && b.visible) {
                         b.visible = false;
                         score += 10;
+                        laserCount++;
                     }
                 });
+                if (laserCount > 0) {
+                    playBrickBreakSound();
+                    vibrateBrickBreak();
+                }
                 updateScoreUI(score);
             }
             break;
@@ -647,6 +683,16 @@ function applyItemEffect(type) {
 }
 
 function updateActiveItems() {
+    if (hasBulletPower && options.difficulty !== 'difficult') {
+        bulletAutoFireFrame++;
+        if (bulletAutoFireFrame >= BULLET_AUTO_FIRE_INTERVAL) {
+            bulletAutoFireFrame = 0;
+            shootBullet();
+        }
+    } else {
+        bulletAutoFireFrame = 0;
+    }
+    updateBulletFireButtonVisibility();
     activeItems = activeItems.filter(item => {
         item.duration--;
         if (item.type === 'paddle2x' && item.duration <= 0) paddle.width = paddle.baseWidth;
@@ -723,6 +769,8 @@ function hitBrick(brick, isBullet = false) {
     const hitInvincible = brick.isBoss && currentStage === 6 && brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil;
     if (brick.isBoss && (isBossInvincible(brick) || hitInvincible)) return;
     brick.hp = Math.max(0, brick.hp - 1);  // 1씩만 감소
+    playBrickBreakSound();
+    vibrateBrickBreak();
     if (brick.isBoss && brick.hp === 1 && currentStage === 6) {
         brick.bossInvincibleUntil = Date.now() + 30000;  // stage6만: 첫 무적 30초
         brick.bossInvinciblePhase = true;
@@ -1377,6 +1425,7 @@ function startGame(isNewGame = true) {
     ballLaunched = false;
     ballStickTimer = 0;
     hasBulletPower = false;
+    bulletAutoFireFrame = 0;
     fallingItems = [];
     bullets = [];
     bossBullets = [];
@@ -1404,6 +1453,7 @@ function startGame(isNewGame = true) {
     document.getElementById('gameOverOverlay')?.classList.add('hidden');
     document.getElementById('winOverlay')?.classList.add('hidden');
     updateOptionsButtonVisibility();
+    updateBulletFireButtonVisibility();
     paddle.x = (canvas.width - paddle.width) / 2;
     mouseX = canvas.width / 2;
     resetBall();
@@ -1808,6 +1858,7 @@ function gameOver() {
 
 function winGame() {
     gameRunning = false;
+    updateBulletFireButtonVisibility();
     stopBGM();
     cancelAnimationFrame(animationId);
     document.getElementById('winScore').textContent = score;
@@ -2004,6 +2055,11 @@ function closeOptions() {
 }
 const optionsCloseBtn = document.getElementById('optionsCloseBtn');
 if (optionsCloseBtn) optionsCloseBtn.addEventListener('click', closeOptions);
+
+const bulletFireBtn = document.getElementById('bulletFireBtn');
+if (bulletFireBtn) bulletFireBtn.addEventListener('click', () => {
+    if (gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'difficult') shootBullet();
+});
 
 const paddleSpeedEl = document.getElementById('paddleSpeed');
 if (paddleSpeedEl) paddleSpeedEl.addEventListener('input', (e) => {

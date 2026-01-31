@@ -309,6 +309,25 @@
             position: relative;
             z-index: 15;
         }
+        #bulletFireBtn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 16;
+            padding: 12px 20px;
+            font-size: 1rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00aa55 0%, #008844 100%);
+            color: white;
+            border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            display: none;
+            box-shadow: 0 2px 10px rgba(0,170,85,0.5);
+        }
+        #bulletFireBtn:active {
+            transform: scale(0.95);
+        }
         .header-btns { display: flex; gap: 8px; align-items: center; }
         
         .header-buttons h1 {
@@ -449,7 +468,8 @@
 </head>
 <body>
     <div class="game-container">
-        <div class="game-main">
+        <div class="game-main" style="position:relative;">
+            <button type="button" id="bulletFireBtn" style="display:none;">🔫 발사</button>
             <div class="header-buttons header-top">
                 <h1>🎮 벽돌깨기</h1>
                 <div class="header-btns">
