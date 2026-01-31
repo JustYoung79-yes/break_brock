@@ -512,7 +512,7 @@
             <h2 id="stageMsgText"></h2>
         </div>
         
-        <div id="createAccountModal" class="overlay hidden" style="z-index:25;">
+        <div id="createAccountModal" class="overlay hidden" style="z-index:999; position:fixed; top:0; left:0; right:0; bottom:0;">
             <h2>계정 새로 만들기</h2>
             <input type="text" id="newAccountName" placeholder="계정 이름" maxlength="20" class="account-input" style="margin:8px 0;">
             <div class="input-with-toggle">
@@ -530,7 +530,7 @@
             <input type="text" id="newHint" placeholder="힌트 (예: 초등학교 때 불렸던 이름)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
             <input type="text" id="newAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
             <div class="overlay-buttons" style="margin-top:15px;">
-                <button class="btn" id="createAccountSubmitBtn">생성</button>
+                <button type="button" class="btn" id="createAccountSubmitBtn">생성</button>
                 <button class="btn btn-small btn-outline" id="createAccountCancelBtn">취소</button>
             </div>
         </div>

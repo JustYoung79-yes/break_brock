@@ -1792,17 +1792,27 @@ function handleDeleteAccount() {
 }
 
 function showCreateAccountModal() {
-    ['newAccountName', 'newPassword', 'newPasswordConfirm', 'newQuestion', 'newHint', 'newAnswer'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-    });
-    document.getElementById('newPassword').type = 'password';
-    document.getElementById('newPasswordConfirm').type = 'password';
-    document.getElementById('toggleNewPassword').textContent = '👁';
-    document.getElementById('toggleNewPasswordConfirm').textContent = '👁';
-    const msgEl = document.getElementById('passwordMatchMsg');
-    if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
-    document.getElementById('createAccountModal').classList.remove('hidden');
+    try {
+        ['newAccountName', 'newPassword', 'newPasswordConfirm', 'newQuestion', 'newHint', 'newAnswer'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const newPwd = document.getElementById('newPassword');
+        const newPwdConfirm = document.getElementById('newPasswordConfirm');
+        if (newPwd) newPwd.type = 'password';
+        if (newPwdConfirm) newPwdConfirm.type = 'password';
+        const toggleNew = document.getElementById('toggleNewPassword');
+        const toggleNewConfirm = document.getElementById('toggleNewPasswordConfirm');
+        if (toggleNew) toggleNew.textContent = '👁';
+        if (toggleNewConfirm) toggleNewConfirm.textContent = '👁';
+        const msgEl = document.getElementById('passwordMatchMsg');
+        if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
+        const modal = document.getElementById('createAccountModal');
+        if (modal) modal.classList.remove('hidden');
+    } catch (e) {
+        console.error('계정 새로 만들기 모달 열기 오류:', e);
+        alert('모달을 열 수 없습니다.');
+    }
 }
 
 function togglePasswordVisibility(inputId, btnId) {
@@ -1924,21 +1934,26 @@ function handleEditAccount() {
 }
 
 function handleCreateAccount() {
-    const name = (document.getElementById('newAccountName')?.value || '').trim();
-    const pwd = (document.getElementById('newPassword')?.value || '').trim();
-    const pwdConfirm = (document.getElementById('newPasswordConfirm')?.value || '').trim();
-    const question = (document.getElementById('newQuestion')?.value || '').trim();
-    const hint = (document.getElementById('newHint')?.value || '').trim();
-    const answer = (document.getElementById('newAnswer')?.value || '').trim();
-    if (!name) { alert('계정 이름을 입력하세요.'); return; }
-    if (!pwd) { alert('비밀번호를 입력하세요.'); return; }
-    if (pwd !== pwdConfirm) { alert('비밀번호가 일치하지 않습니다.'); return; }
-    if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
-    if (getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
-    saveAccount(name, { password: pwd, question, hint, answer });
-    refreshAccountList();
-    hideCreateAccountModal();
-    alert('계정이 생성되었습니다.');
+    try {
+        const name = (document.getElementById('newAccountName')?.value || '').trim();
+        const pwd = (document.getElementById('newPassword')?.value || '').trim();
+        const pwdConfirm = (document.getElementById('newPasswordConfirm')?.value || '').trim();
+        const question = (document.getElementById('newQuestion')?.value || '').trim();
+        const hint = (document.getElementById('newHint')?.value || '').trim();
+        const answer = (document.getElementById('newAnswer')?.value || '').trim();
+        if (!name) { alert('계정 이름을 입력하세요.'); return; }
+        if (!pwd) { alert('비밀번호를 입력하세요.'); return; }
+        if (pwd !== pwdConfirm) { alert('비밀번호가 일치하지 않습니다.'); return; }
+        if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
+        if (getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
+        saveAccount(name, { password: pwd, question, hint, answer });
+        refreshAccountList();
+        hideCreateAccountModal();
+        alert('계정이 생성되었습니다.');
+    } catch (e) {
+        console.error('계정 생성 오류:', e);
+        alert('계정 생성 중 오류가 발생했습니다. 브라우저에서 로컬 저장소가 활성화되어 있는지 확인해 주세요.');
+    }
 }
 
 function showFindPasswordModal() {
