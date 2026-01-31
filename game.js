@@ -116,11 +116,11 @@ function tryLockLandscape() {
     } catch (e) { /* 일부 브라우저에서 lock 미지원 */ }
 }
 
-// 회전 안내 오버레이 표시 (모바일 세로 모드일 때)
+// 회전 안내 오버레이 표시 (모바일 세로 모드일 때, 로그인 화면 제외)
 function updateRotateOverlay() {
     const el = document.getElementById('rotateOverlay');
     if (!el) return;
-    if (isMobile() && !isLandscape()) {
+    if (isMobile() && !isLandscape() && !isLoginScreenVisible()) {
         el.style.display = 'flex';
         el.classList.remove('hidden');
     } else {
