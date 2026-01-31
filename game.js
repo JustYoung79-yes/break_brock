@@ -43,21 +43,46 @@ function isLandscape() {
     return window.innerWidth >= window.innerHeight;
 }
 
-// 모바일 가로 모드용 캔버스 크기
+// 전체화면 여부
+function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+}
+
+// 모바일 가로 모드용 캔버스 크기 (전체화면 시 주소창 제외하여 최대 활용)
 function applyMobileLandscapeDimensions() {
     if (!isMobile() || !isLandscape()) return;
-    const maxW = Math.min(window.innerWidth - 40, 960);
-    const maxH = Math.min(window.innerHeight - 180, 600);
+    const fs = isFullscreen();
+    const padW = fs ? 20 : 40;
+    const padH = fs ? 100 : 180;  // 전체화면 시 헤더/인포/컨트롤만 (주소창 제외)
+    const maxW = Math.max(200, Math.min(window.innerWidth - padW, 960));
+    const maxH = Math.max(200, Math.min(window.innerHeight - padH, 600));
     options.canvasWidth = maxW;
     options.canvasHeight = maxH;
+}
+
+// 전체화면 토글
+function toggleFullscreen() {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (!req || !exit) return;
+    try {
+        if (isFullscreen()) {
+            exit.call(document);
+        } else {
+            req.call(el);
+        }
+    } catch (e) { console.warn('fullscreen:', e); }
 }
 
 // 가로 모드 고정 시도
 function tryLockLandscape() {
     if (!isMobile()) return;
-    if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
-    }
+    try {
+        if (screen.orientation && typeof screen.orientation.lock === 'function') {
+            screen.orientation.lock('landscape').catch(() => {});
+        }
+    } catch (e) { /* 일부 브라우저에서 lock 미지원 */ }
 }
 
 // 회전 안내 오버레이 표시 (모바일 세로 모드일 때)
@@ -1589,6 +1614,41 @@ function openOptions() {
 
 document.getElementById('optionsBtn').addEventListener('click', openOptions);
 
+function updateFullscreenButton() {
+    const btn = document.getElementById('fullscreenBtn');
+    if (!btn) return;
+    btn.style.display = isMobile() ? '' : 'none';
+    btn.textContent = isFullscreen() ? '⛶' : '⛶';
+    btn.title = isFullscreen() ? '전체화면 해제' : '전체화면';
+}
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
+    toggleFullscreen();
+});
+
+function onFullscreenChange() {
+    updateFullscreenButton();
+    if (isMobile() && isLandscape()) {
+        applyMobileLandscapeDimensions();
+        applyOptions();
+        try {
+            canvas.width = options.canvasWidth;
+            canvas.height = options.canvasHeight;
+            paddle.y = canvas.height - 40;
+            paddle.x = Math.min(paddle.x, canvas.width - paddle.width);
+            if (!gameRunning) {
+                paddle.x = (canvas.width - paddle.width) / 2;
+                bricks = createBricks();
+            }
+            draw();
+        } catch (e) { console.warn('fullscreen resize:', e); }
+    }
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+document.addEventListener('mozfullscreenchange', onFullscreenChange);
+document.addEventListener('MSFullscreenChange', onFullscreenChange);
+
 document.getElementById('optionsCloseBtn').addEventListener('click', () => {
     if (gameRunning) gamePaused = false;
     options.paddleSpeed = parseInt(document.getElementById('paddleSpeed').value) || 12;
@@ -1973,30 +2033,38 @@ if (!STAGE6_ONLY) {
 const resetRankingBtn = document.getElementById('resetRankingBtn');
 if (resetRankingBtn) resetRankingBtn.addEventListener('click', handleResetRanking);
 
-window.addEventListener('orientationchange', () => {
+function handleOrientationOrResize() {
     updateRotateOverlay();
     if (isMobile() && isLandscape()) {
         applyMobileLandscapeDimensions();
         applyOptions();
-        if (gameRunning) {
-            canvas.width = options.canvasWidth;
-            canvas.height = options.canvasHeight;
-            paddle.y = canvas.height - 40;
-            paddle.x = Math.min(paddle.x, canvas.width - paddle.width);
-        } else {
-            canvas.width = options.canvasWidth;
-            canvas.height = options.canvasHeight;
-            paddle.y = canvas.height - 40;
-            paddle.x = (canvas.width - paddle.width) / 2;
-            bricks = createBricks();
-            draw();
-        }
+        try {
+            if (gameRunning) {
+                canvas.width = options.canvasWidth;
+                canvas.height = options.canvasHeight;
+                paddle.y = canvas.height - 40;
+                paddle.x = Math.min(paddle.x, canvas.width - paddle.width);
+            } else {
+                canvas.width = options.canvasWidth;
+                canvas.height = options.canvasHeight;
+                paddle.y = canvas.height - 40;
+                paddle.x = (canvas.width - paddle.width) / 2;
+                bricks = createBricks();
+                draw();
+            }
+        } catch (e) { console.warn('orientation resize:', e); }
     }
+}
+window.addEventListener('orientationchange', handleOrientationOrResize);
+window.addEventListener('resize', () => {
+    if (isMobile()) handleOrientationOrResize();
+    updateFullscreenButton();
 });
 
 function init() {
     tryLockLandscape();
     updateRotateOverlay();
+    updateFullscreenButton();
     if (isMobile() && isLandscape()) applyMobileLandscapeDimensions();
     applyOptions();
     if (STAGE6_ONLY || BOSS6_TEST) {
