@@ -464,15 +464,16 @@
             <select id="accountSelect" class="account-input" style="width:220px; margin:10px 0;">
                 <option value="">-- 계정 선택 --</option>
             </select>
+            <p id="accountListHint" class="account-hint" style="display:none; font-size:0.85rem; color:#666; margin:8px 0; max-width:280px;"></p>
             <div class="input-with-toggle" style="margin:10px 0;">
                 <input type="password" id="passwordInput" placeholder="비밀번호" maxlength="30" class="account-input">
                 <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
             </div>
             <div class="overlay-buttons" style="margin-top:15px;">
-                <button class="btn" id="loginBtn">로그인</button>
-                <button class="btn btn-small btn-outline" id="createAccountBtn">계정 새로 만들기</button>
-                <button class="btn btn-small btn-outline" id="deleteAccountBtn">계정 삭제</button>
-                <button class="btn btn-small btn-outline" id="findPasswordBtn">비밀번호 찾기</button>
+                <button type="button" class="btn" id="loginBtn" onclick="typeof doLogin==='function'&&doLogin()">로그인</button>
+                <button type="button" class="btn btn-small btn-outline" id="createAccountBtn" onclick="typeof showCreateAccountModal==='function'&&showCreateAccountModal()">계정 새로 만들기</button>
+                <button type="button" class="btn btn-small btn-outline" id="deleteAccountBtn" onclick="typeof handleDeleteAccount==='function'&&handleDeleteAccount()">계정 삭제</button>
+                <button type="button" class="btn btn-small btn-outline" id="findPasswordBtn" onclick="typeof showFindPasswordModal==='function'&&showFindPasswordModal()">비밀번호 찾기</button>
             </div>
         </div>
         
@@ -510,29 +511,6 @@
         
         <div id="stageMsgOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.7);">
             <h2 id="stageMsgText"></h2>
-        </div>
-        
-        <div id="createAccountModal" class="overlay hidden" style="z-index:999; position:fixed; top:0; left:0; right:0; bottom:0;">
-            <h2>계정 새로 만들기</h2>
-            <input type="text" id="newAccountName" placeholder="계정 이름" maxlength="20" class="account-input" style="margin:8px 0;">
-            <div class="input-with-toggle">
-                <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
-                <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>
-            </div>
-            <div>
-                <div class="input-with-toggle">
-                    <input type="password" id="newPasswordConfirm" placeholder="비밀번호 확인" maxlength="30" class="account-input">
-                    <button type="button" class="btn-toggle-pw" id="toggleNewPasswordConfirm" title="비밀번호 보기">👁</button>
-                </div>
-                <p id="passwordMatchMsg" class="password-match-msg" style="display:none;"></p>
-            </div>
-            <input type="text" id="newQuestion" placeholder="비밀번호 찾기 질문 (예: 어릴적 별명은?)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
-            <input type="text" id="newHint" placeholder="힌트 (예: 초등학교 때 불렸던 이름)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
-            <input type="text" id="newAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
-            <div class="overlay-buttons" style="margin-top:15px;">
-                <button type="button" class="btn" id="createAccountSubmitBtn">생성</button>
-                <button class="btn btn-small btn-outline" id="createAccountCancelBtn">취소</button>
-            </div>
         </div>
         
         <div id="passwordPromptModal" class="overlay hidden" style="z-index:25;">
@@ -620,6 +598,30 @@
                 </select>
             </div>
             <button class="btn" id="optionsCloseBtn" style="margin-top:20px;">닫기</button>
+        </div>
+    </div>
+
+    <!-- 계정 모달: body 직계 자식으로 분리 (클릭/표시 문제 방지) -->
+    <div id="createAccountModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
+        <h2>계정 새로 만들기</h2>
+        <input type="text" id="newAccountName" placeholder="계정 이름" maxlength="20" class="account-input" style="margin:8px 0;">
+        <div class="input-with-toggle">
+            <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
+            <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>
+        </div>
+        <div>
+            <div class="input-with-toggle">
+                <input type="password" id="newPasswordConfirm" placeholder="비밀번호 확인" maxlength="30" class="account-input">
+                <button type="button" class="btn-toggle-pw" id="toggleNewPasswordConfirm" title="비밀번호 보기">👁</button>
+            </div>
+            <p id="passwordMatchMsg" class="password-match-msg" style="display:none;"></p>
+        </div>
+        <input type="text" id="newQuestion" placeholder="비밀번호 찾기 질문 (예: 어릴적 별명은?)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+        <input type="text" id="newHint" placeholder="힌트 (예: 초등학교 때 불렸던 이름)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+        <input type="text" id="newAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
+        <div class="overlay-buttons" style="margin-top:15px;">
+            <button type="button" class="btn" id="createAccountSubmitBtn" onclick="typeof handleCreateAccount==='function'&&handleCreateAccount()">생성</button>
+            <button type="button" class="btn btn-small btn-outline" id="createAccountCancelBtn" onclick="typeof hideCreateAccountModal==='function'&&hideCreateAccountModal()">취소</button>
         </div>
     </div>
 

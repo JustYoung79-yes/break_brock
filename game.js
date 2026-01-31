@@ -1708,10 +1708,20 @@ function refreshAccountList() {
     if (STAGE6_ONLY) return;
     const select = document.getElementById('accountSelect');
     const findSelect = document.getElementById('findPasswordAccountSelect');
-    if (!select || !findSelect) return;
+    const hintEl = document.getElementById('accountListHint');
     const accounts = Object.keys(getAccounts()).sort();
-    select.innerHTML = findSelect.innerHTML = '<option value="">-- 계정 선택 --</option>' +
+    const optionsHtml = '<option value="">-- 계정 선택 --</option>' +
         accounts.map(a => `<option value="${a.replace(/"/g, '&quot;')}">${a.replace(/</g, '&lt;')}</option>`).join('');
+    if (select) select.innerHTML = optionsHtml;
+    if (findSelect) findSelect.innerHTML = optionsHtml;
+    if (hintEl) {
+        if (accounts.length === 0) {
+            hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요. (같은 주소/URL에서 만든 계정만 표시됩니다)';
+            hintEl.style.display = 'block';
+        } else {
+            hintEl.style.display = 'none';
+        }
+    }
 }
 
 function doLogin() {
@@ -1793,6 +1803,7 @@ function handleDeleteAccount() {
 
 function showCreateAccountModal() {
     try {
+        refreshAccountList();
         ['newAccountName', 'newPassword', 'newPasswordConfirm', 'newQuestion', 'newHint', 'newAnswer'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
@@ -1808,7 +1819,7 @@ function showCreateAccountModal() {
         const msgEl = document.getElementById('passwordMatchMsg');
         if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
         const modal = document.getElementById('createAccountModal');
-        if (modal) modal.classList.remove('hidden');
+        if (modal) { modal.classList.remove('hidden'); modal.style.display = 'flex'; }
     } catch (e) {
         console.error('계정 새로 만들기 모달 열기 오류:', e);
         alert('모달을 열 수 없습니다.');
@@ -1850,7 +1861,9 @@ function checkPasswordMatch() {
 }
 
 function hideCreateAccountModal() {
-    document.getElementById('createAccountModal').classList.add('hidden');
+    const modal = document.getElementById('createAccountModal');
+    if (modal) { modal.classList.add('hidden'); modal.style.display = ''; }
+    refreshAccountList();
 }
 
 function updateOptionsButtonVisibility() {
@@ -2011,13 +2024,19 @@ function handleFindPassword() {
     }
 }
 
-if (!STAGE6_ONLY) {
+function setupLoginHandlers() {
+    if (STAGE6_ONLY) return;
     const loginBtn = document.getElementById('loginBtn');
     if (loginBtn) loginBtn.addEventListener('click', doLogin);
     const passwordInput = document.getElementById('passwordInput');
     if (passwordInput) passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
-    const createAccountBtn = document.getElementById('createAccountBtn');
-    if (createAccountBtn) createAccountBtn.addEventListener('click', showCreateAccountModal);
+    document.addEventListener('click', (e) => {
+        if (e.target.closest && e.target.closest('#createAccountBtn')) { e.preventDefault(); showCreateAccountModal(); }
+        if (e.target.closest && e.target.closest('#createAccountSubmitBtn')) { e.preventDefault(); handleCreateAccount(); }
+        if (e.target.closest && e.target.closest('#loginBtn')) { e.preventDefault(); doLogin(); }
+        if (e.target.closest && e.target.closest('#deleteAccountBtn')) { e.preventDefault(); handleDeleteAccount(); }
+        if (e.target.closest && e.target.closest('#findPasswordBtn')) { e.preventDefault(); showFindPasswordModal(); }
+    });
     const deleteAccountBtn = document.getElementById('deleteAccountBtn');
     if (deleteAccountBtn) deleteAccountBtn.addEventListener('click', handleDeleteAccount);
     const findPasswordBtn = document.getElementById('findPasswordBtn');
@@ -2142,4 +2161,9 @@ function init() {
     draw();
 }
 
-init();
+setupLoginHandlers();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
