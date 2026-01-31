@@ -1,6 +1,25 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Firebase 설정
+const firebaseConfig = {
+    apiKey: "AIzaSyC3tZAWCkmrNccGhLgWUPciDbPvgWj2gdY",
+    authDomain: "breakbrock-young.firebaseapp.com",
+    projectId: "breakbrock-young",
+    storageBucket: "breakbrock-young.firebasestorage.app",
+    messagingSenderId: "193113416471",
+    appId: "1:193113416471:web:4591f360f69f8e5b5f4d52",
+    measurementId: "G-XMSKEQGP0S"
+};
+let firebaseApp = null;
+let firestoreDb = null;
+try {
+    firebaseApp = firebase.initializeApp(firebaseConfig);
+    firestoreDb = firebase.firestore();
+} catch (e) {
+    console.warn('Firebase 초기화 실패:', e);
+}
+
 const STAGE6_ONLY = (typeof window !== 'undefined' && window.STAGE6_ONLY) || false;
 const BOSS6_TEST = (typeof window !== 'undefined' && window.BOSS6_TEST) || false;
 
@@ -24,10 +43,18 @@ const BRICK_PADDING = 4;
 const BRICK_OFFSET_TOP = 60;
 const BRICK_OFFSET_LEFT = 30;
 
+// 난이도별 설정
+const DIFFICULTY_CONFIG = {
+    easy: { ballSpeed: 3, stage6BallSpeed: 5, scoreMult: 1, reinforcedMult: 0.5, itemCount: 8, nerfCount: 2 },
+    medium: { ballSpeed: 4, stage6BallSpeed: 6, scoreMult: 2, reinforcedMult: 1, itemCount: 5, nerfCount: 5 },
+    difficult: { ballSpeed: 5, stage6BallSpeed: 7, scoreMult: 3, reinforcedMult: 1.5, itemCount: 2, nerfCount: 8 }
+};
+
 // 옵션 설정값
 let options = {
     paddleSpeed: 12,
     ballSpeed: 3,
+    difficulty: 'medium',
     brickRows: 6,
     brickCols: 10,
     canvasWidth: 800,
@@ -167,8 +194,14 @@ const BOSS_CONFIG = {
     6: { hp: 10, movePattern: 'curve', shootInterval: 60 }
 };
 
-// 스테이지별 강화블럭 개수
+// 스테이지별 강화블럭 개수 (기준값, 난이도에 따라 배율 적용)
 const REINFORCED_COUNT_BY_STAGE = [0, 5, 10, 20, 30, 50];
+
+function getReinforcedCount(stageIdx) {
+    const base = REINFORCED_COUNT_BY_STAGE[Math.min(stageIdx, 5)] || 0;
+    const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+    return Math.max(0, Math.floor(base * cfg.reinforcedMult));
+}
 
 // 아이템 효과 표시 이름 (지속형)
 const ITEM_DISPLAY_NAMES = {
@@ -258,13 +291,14 @@ function createBricks() {
     }
 
     const shuffled = [...validPositions].sort(() => Math.random() - 0.5);
-    const nerfCount = Math.min(currentStage - 1, 5);
-    const itemCount = 10 - nerfCount;
-    const itemNerfPositions = shuffled.slice(0, 10);
+    const diffCfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+    const itemCount = Math.min(diffCfg.itemCount, 10);
+    const nerfCount = Math.min(diffCfg.nerfCount, 10 - itemCount);
+    const itemNerfPositions = shuffled.slice(0, itemCount + nerfCount);
     const itemPositions = new Set(itemNerfPositions.slice(0, itemCount));
-    const nerfPositions = new Set(itemNerfPositions.slice(itemCount, 10));
+    const nerfPositions = new Set(itemNerfPositions.slice(itemCount, itemCount + nerfCount));
 
-    const reinforcedCount = REINFORCED_COUNT_BY_STAGE[Math.min(currentStage - 1, 5)] || 0;
+    const reinforcedCount = getReinforcedCount(currentStage - 1);
     const reinforcedHpOptions = currentStage >= 4 ? [2, 3, 4] : currentStage >= 3 ? [2, 3] : [2];
     const reinforcedPositions = new Set();
     for (let i = 10; i < shuffled.length && reinforcedPositions.size < reinforcedCount; i++) {
@@ -694,7 +728,9 @@ function hitBrick(brick, isBullet = false) {
         brick.bossInvinciblePhase = true;
     }
     if (brick.isBoss && currentStage === 6 && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
-    score += brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
+    const baseScore = brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
+    const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+    score += baseScore * cfg.scoreMult;
     updateScoreUI(score);
     if (brick.hp <= 0) {
         brick.visible = false;
@@ -1001,9 +1037,8 @@ function showStageClearAndNext() {
         currentStage++;
         updateStageUI(currentStage);
         if (currentStage === 6) {
-            options.ballSpeed = 7;
-            const ballSpeedEl = document.getElementById('ballSpeed');
-            if (ballSpeedEl) { ballSpeedEl.value = 7; document.getElementById('ballSpeedVal').textContent = 7; }
+            const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+            options.ballSpeed = cfg.stage6BallSpeed;
         }
         bricks = createBricks();
         resetBall();
@@ -1311,7 +1346,10 @@ function gameLoop(now = performance.now()) {
 
 function applyOptions() {
     options.paddleSpeed = parseInt(document.getElementById('paddleSpeed').value) || 12;
-    options.ballSpeed = parseInt(document.getElementById('ballSpeed').value) || 3;
+    const diffEl = document.getElementById('difficulty');
+    options.difficulty = (diffEl && diffEl.value) || 'medium';
+    const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+    options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
     const blockCount = document.getElementById('blockCount').value;
     if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
     else if (blockCount === 'large') { options.brickRows = 8; options.brickCols = 12; }
@@ -1433,55 +1471,137 @@ function stopBGM() {
     }
 }
 
-const RANKING_KEY = 'brickBreakerRanking';
+const MAX_RANKING = 20;
+const RANKING_DISPLAY_COUNT = 20;
 const ACCOUNTS_KEY = 'brickBreakerAccounts';
-const MAX_RANKING = 10;
-const RANKING_DISPLAY_COUNT = 10;
+const RANKING_KEY = 'brickBreakerRanking';
 
-function getAccounts() {
+function isOnline() {
+    return typeof navigator !== 'undefined' && navigator.onLine;
+}
+
+function getAccountsFromLocal() {
     try {
         const raw = localStorage.getItem(ACCOUNTS_KEY) || '{}';
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
         return {};
+    } catch (e) { return {}; }
+}
+
+function getRankingFromLocal() {
+    try {
+        const raw = localStorage.getItem(RANKING_KEY) || '[]';
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+}
+
+function setAccountsToLocal(accounts) {
+    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); } catch (e) {}
+}
+
+function setRankingToLocal(ranking) {
+    try { localStorage.setItem(RANKING_KEY, JSON.stringify(ranking)); } catch (e) {}
+}
+
+async function syncLocalToFirestore() {
+    if (!firestoreDb || !isOnline()) return;
+    try {
+        const localAccounts = getAccountsFromLocal();
+        const localRanking = getRankingFromLocal();
+        let fireAccounts = {};
+        let fireRanking = [];
+        try {
+            const docSnap = await firestoreDb.collection('game').doc('data').get();
+            const data = docSnap.exists ? docSnap.data() : {};
+            fireAccounts = (data.accounts && typeof data.accounts === 'object') ? data.accounts : {};
+            fireRanking = Array.isArray(data.ranking) ? data.ranking : [];
+        } catch (e) { /* Firestore 읽기 실패 */ }
+        const mergedAccounts = { ...fireAccounts, ...localAccounts };
+        const mergedRanking = [...fireRanking];
+        localRanking.forEach(r => {
+            if (!mergedRanking.some(m => m.account === r.account && m.score === r.score && m.date === r.date)) {
+                mergedRanking.push(r);
+            }
+        });
+        mergedRanking.sort((a, b) => (b.score || 0) - (a.score || 0));
+        const trimmedRanking = mergedRanking.slice(0, MAX_RANKING);
+        await firestoreDb.collection('game').doc('data').set({ accounts: mergedAccounts, ranking: trimmedRanking }, { merge: true });
+        setAccountsToLocal(mergedAccounts);
+        setRankingToLocal(trimmedRanking);
     } catch (e) {
-        console.warn('getAccounts 오류:', e);
-        return {};
+        console.warn('syncLocalToFirestore 오류:', e);
     }
 }
 
-function saveAccount(name, data) {
-    const accounts = getAccounts();
+async function getAccounts() {
+    if (firestoreDb && isOnline()) {
+        try {
+            const docSnap = await firestoreDb.collection('game').doc('data').get();
+            const data = docSnap.exists ? docSnap.data() : {};
+            const accounts = data.accounts;
+            if (accounts && typeof accounts === 'object' && !Array.isArray(accounts)) {
+                setAccountsToLocal(accounts);
+                return accounts;
+            }
+        } catch (e) {
+            console.warn('getAccounts Firestore 오류:', e);
+        }
+    }
+    return getAccountsFromLocal();
+}
+
+async function saveAccount(name, data) {
+    const accounts = await getAccounts();
     accounts[name] = data;
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    setAccountsToLocal(accounts);
+    if (firestoreDb && isOnline()) {
+        try {
+            await firestoreDb.collection('game').doc('data').set({ accounts }, { merge: true });
+        } catch (e) {
+            console.warn('saveAccount Firestore 오류:', e);
+        }
+    }
 }
 
-function deleteAccountData(name) {
-    const accounts = getAccounts();
+async function deleteAccountData(name) {
+    const accounts = await getAccounts();
     delete accounts[name];
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    setAccountsToLocal(accounts);
+    if (firestoreDb && isOnline()) {
+        try {
+            await firestoreDb.collection('game').doc('data').set({ accounts }, { merge: true });
+        } catch (e) {
+            console.warn('deleteAccountData Firestore 오류:', e);
+        }
+    }
 }
 
-function getAccount(name) {
-    return getAccounts()[name] || null;
+async function getAccount(name) {
+    const accounts = await getAccounts();
+    return accounts[name] || null;
 }
 
 // 계정별 옵션 저장/로드
 const DEFAULT_OPTIONS = {
     paddleSpeed: 12,
     ballSpeed: 3,
+    difficulty: 'medium',
     brickRows: 6,
     brickCols: 10,
     canvasWidth: 800,
     canvasHeight: 600
 };
 
-function loadOptionsForAccount(accountName) {
-    const acc = accountName ? getAccount(accountName) : null;
+async function loadOptionsForAccount(accountName) {
+    const acc = accountName ? await getAccount(accountName) : null;
     const saved = acc?.options;
     if (saved && typeof saved === 'object') {
         options.paddleSpeed = saved.paddleSpeed ?? DEFAULT_OPTIONS.paddleSpeed;
-        options.ballSpeed = saved.ballSpeed ?? DEFAULT_OPTIONS.ballSpeed;
+        options.difficulty = saved.difficulty ?? DEFAULT_OPTIONS.difficulty;
+        const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+        options.ballSpeed = cfg.ballSpeed;
         options.brickRows = saved.brickRows ?? DEFAULT_OPTIONS.brickRows;
         options.brickCols = saved.brickCols ?? DEFAULT_OPTIONS.brickCols;
         options.canvasWidth = saved.canvasWidth ?? DEFAULT_OPTIONS.canvasWidth;
@@ -1489,17 +1609,20 @@ function loadOptionsForAccount(accountName) {
     } else {
         Object.assign(options, DEFAULT_OPTIONS);
     }
+    const diffEl = document.getElementById('difficulty');
+    if (diffEl) diffEl.value = options.difficulty || 'medium';
 }
 
-function saveOptionsToAccount() {
+async function saveOptionsToAccount() {
     if (!currentAccount) return;
-    const acc = getAccount(currentAccount);
+    const acc = await getAccount(currentAccount);
     if (!acc) return;
-    saveAccount(currentAccount, {
+    await saveAccount(currentAccount, {
         ...acc,
         options: {
             paddleSpeed: options.paddleSpeed,
             ballSpeed: options.ballSpeed,
+            difficulty: options.difficulty,
             brickRows: options.brickRows,
             brickCols: options.brickCols,
             canvasWidth: options.canvasWidth,
@@ -1508,14 +1631,25 @@ function saveOptionsToAccount() {
     });
 }
 
-function getRanking() {
-    try {
-        return JSON.parse(localStorage.getItem(RANKING_KEY) || '[]');
-    } catch { return []; }
+async function getRanking() {
+    if (firestoreDb && isOnline()) {
+        try {
+            const docSnap = await firestoreDb.collection('game').doc('data').get();
+            const data = docSnap.exists ? docSnap.data() : {};
+            const ranking = data.ranking;
+            if (Array.isArray(ranking)) {
+                setRankingToLocal(ranking);
+                return ranking;
+            }
+        } catch (e) {
+            console.warn('getRanking Firestore 오류:', e);
+        }
+    }
+    return getRankingFromLocal();
 }
 
-function saveToRanking(score) {
-    const ranking = getRanking();
+async function saveToRanking(score) {
+    const ranking = await getRanking();
     ranking.push({
         account: currentAccount || '게스트',
         score,
@@ -1523,13 +1657,61 @@ function saveToRanking(score) {
         date: new Date().toISOString()
     });
     ranking.sort((a, b) => b.score - a.score);
-    localStorage.setItem(RANKING_KEY, JSON.stringify(ranking.slice(0, MAX_RANKING)));
-    const rank = ranking.findIndex(r => r.score === score && r.account === (currentAccount || '게스트')) + 1;
+    const trimmed = ranking.slice(0, MAX_RANKING);
+    setRankingToLocal(trimmed);
+    if (firestoreDb && isOnline()) {
+        try {
+            await firestoreDb.collection('game').doc('data').set({ ranking: trimmed }, { merge: true });
+        } catch (e) {
+            console.warn('saveToRanking Firestore 오류:', e);
+        }
+    }
+    const rank = trimmed.findIndex(r => r.score === score && r.account === (currentAccount || '게스트')) + 1;
     return rank > 0 ? rank : 1;
 }
 
-function clearRanking() {
-    localStorage.setItem(RANKING_KEY, '[]');
+async function clearRanking() {
+    setRankingToLocal([]);
+    if (firestoreDb && isOnline()) {
+        try {
+            await firestoreDb.collection('game').doc('data').set({ ranking: [] }, { merge: true });
+        } catch (e) {
+            console.warn('clearRanking Firestore 오류:', e);
+        }
+    }
+}
+
+const ADMIN_PASSWORD = 'admin';
+
+async function handleResetAllRanking() {
+    const pwd = prompt('관리자 비밀번호를 입력하세요.');
+    if (pwd === null) return;
+    if (pwd !== ADMIN_PASSWORD) {
+        alert('비밀번호가 올바르지 않습니다.');
+        return;
+    }
+    await clearRanking();
+    await resetRankingUI();
+    alert('전체 점수가 초기화되었습니다.');
+}
+
+async function handleResetMyRanking() {
+    if (!currentAccount) {
+        alert('로그인된 계정이 없습니다.');
+        return;
+    }
+    if (!confirm(currentAccount + ' 계정의 점수만 삭제하시겠습니까?')) return;
+    const ranking = (await getRanking()).filter(r => (r.account || '게스트') !== currentAccount);
+    setRankingToLocal(ranking);
+    if (firestoreDb && isOnline()) {
+        try {
+            await firestoreDb.collection('game').doc('data').set({ ranking }, { merge: true });
+        } catch (e) {
+            console.warn('handleResetMyRanking 오류:', e);
+        }
+    }
+    await resetRankingUI();
+    alert('내 점수가 초기화되었습니다.');
 }
 
 function formatRankingDate(isoStr) {
@@ -1540,10 +1722,10 @@ function formatRankingDate(isoStr) {
     } catch { return '-'; }
 }
 
-function renderRanking(elementId) {
+async function renderRanking(elementId) {
     const el = document.getElementById(elementId);
     if (!el) return;
-    const ranking = getRanking();
+    const ranking = await getRanking();
     if (!ranking.length) {
         el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
         return;
@@ -1554,22 +1736,22 @@ function renderRanking(elementId) {
     el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
-function resetRankingUI() {
-    renderRanking('rankingDisplay');
-    renderRanking('winRankingDisplay');
+async function resetRankingUI() {
+    await renderRanking('rankingDisplay');
+    await renderRanking('winRankingDisplay');
     const goFirst = document.getElementById('gameOverFirstPlace');
     const celebration = document.getElementById('firstPlaceCelebration');
     if (goFirst) goFirst.classList.add('hidden');
     if (celebration) celebration.classList.add('hidden');
 }
 
-function gameOver() {
+async function gameOver() {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
     saveGameState();
-    saveToRanking(score);
-    const ranking = getRanking();
+    await saveToRanking(score);
+    const ranking = await getRanking();
     const isFirst = ranking.length > 0 && ranking[0].score === score;
     document.getElementById('finalScore').textContent = score;
     const goFirstEl = document.getElementById('gameOverFirstPlace');
@@ -1582,19 +1764,19 @@ function gameOver() {
             goFirstEl.classList.add('hidden');
         }
     }
-    renderRanking('rankingDisplay');
+    await renderRanking('rankingDisplay');
     document.getElementById('gameOverOverlay')?.classList.remove('hidden');
 }
 
-function winGame() {
+async function winGame() {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
-    saveToRanking(score);
-    const ranking = getRanking();
+    await saveToRanking(score);
+    const ranking = await getRanking();
     const isFirst = ranking.length > 0 && ranking[0].score === score;
     document.getElementById('winScore').textContent = score;
-    renderRanking('winRankingDisplay');
+    await renderRanking('winRankingDisplay');
     const celebrationEl = document.getElementById('firstPlaceCelebration');
     if (celebrationEl) {
         if (isFirst) {
@@ -1630,14 +1812,12 @@ function playVictoryMusic() {
 function openOptions() {
     if (gameRunning) gamePaused = true;
     const paddleEl = document.getElementById('paddleSpeed');
-    const ballEl = document.getElementById('ballSpeed');
     const paddleVal = document.getElementById('paddleSpeedVal');
-    const ballVal = document.getElementById('ballSpeedVal');
+    const diffEl = document.getElementById('difficulty');
     const blockEl = document.getElementById('blockCount');
     if (paddleEl) paddleEl.value = options.paddleSpeed;
-    if (ballEl) ballEl.value = options.ballSpeed;
+    if (diffEl) diffEl.value = options.difficulty || 'medium';
     if (paddleVal) paddleVal.textContent = options.paddleSpeed;
-    if (ballVal) ballVal.textContent = options.ballSpeed;
     if (blockEl) blockEl.value = options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
     const ssEl = document.getElementById('screenSize');
     if (ssEl) ssEl.value = (isMobile() && options.canvasWidth <= 960) ? 'mobile' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
@@ -1672,7 +1852,7 @@ function updateExitButton() {
     });
 }
 
-function doExit() {
+async function doExit() {
     if (STAGE6_ONLY) return;
     try {
         if (isFullscreen()) {
@@ -1689,7 +1869,7 @@ function doExit() {
         const loginEl = document.getElementById('loginOverlay');
         if (loginEl) loginEl.classList.remove('hidden');
         document.getElementById('passwordInput').value = '';
-        refreshAccountList();
+        await refreshAccountList();
         updateOptionsButtonVisibility();
         updateExitButton();
         updateRotateOverlay();
@@ -1725,13 +1905,15 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 document.addEventListener('mozfullscreenchange', onFullscreenChange);
 document.addEventListener('MSFullscreenChange', onFullscreenChange);
 
-function closeOptions() {
+async function closeOptions() {
     try {
         if (gameRunning) gamePaused = false;
         const paddleEl = document.getElementById('paddleSpeed');
-        const ballEl = document.getElementById('ballSpeed');
+        const diffEl = document.getElementById('difficulty');
         options.paddleSpeed = parseInt(paddleEl ? paddleEl.value : 12) || 12;
-        options.ballSpeed = parseInt(ballEl ? ballEl.value : 3) || 3;
+        options.difficulty = (diffEl && diffEl.value) || 'medium';
+        const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+        options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
         const blockEl = document.getElementById('blockCount');
         const blockCount = blockEl ? blockEl.value : 'medium';
         if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
@@ -1757,7 +1939,7 @@ function closeOptions() {
             bricks = createBricks();
             draw();
         }
-        saveOptionsToAccount();
+        await saveOptionsToAccount();
         const panel = document.getElementById('optionsPanel');
         if (panel) panel.classList.add('hidden');
     } catch (e) {
@@ -1774,10 +1956,10 @@ if (paddleSpeedEl) paddleSpeedEl.addEventListener('input', (e) => {
     const v = document.getElementById('paddleSpeedVal');
     if (v) v.textContent = e.target.value;
 });
-const ballSpeedEl = document.getElementById('ballSpeed');
-if (ballSpeedEl) ballSpeedEl.addEventListener('input', (e) => {
-    const v = document.getElementById('ballSpeedVal');
-    if (v) v.textContent = e.target.value;
+const diffEl = document.getElementById('difficulty');
+if (diffEl) diffEl.addEventListener('change', () => {
+    const cfg = DIFFICULTY_CONFIG[diffEl.value] || DIFFICULTY_CONFIG.medium;
+    options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
 });
 
 const startBtn = document.getElementById('startBtn');
@@ -1788,28 +1970,26 @@ const newGameBtn = document.getElementById('newGameBtn');
 if (newGameBtn) newGameBtn.addEventListener('click', restartGame);
 const playAgainBtn = document.getElementById('playAgainBtn');
 if (playAgainBtn) playAgainBtn.addEventListener('click', restartGame);
+document.querySelectorAll('#resetMyRankingBtn, #resetMyRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetMyRanking); });
+document.querySelectorAll('#resetAllRankingBtn, #resetAllRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetAllRanking); });
 
-function refreshAccountList(selectAccountName) {
+async function refreshAccountList(selectAccountName) {
     if (STAGE6_ONLY) return;
     try {
-        const select = document.getElementById('accountSelect');
-        const findSelect = document.getElementById('findPasswordAccountSelect');
+        const accountInput = document.getElementById('accountSelect');
         const hintEl = document.getElementById('accountListHint');
-        const accountsObj = getAccounts();
+        const accountsObj = await getAccounts();
         const accounts = Object.keys(accountsObj).filter(k => accountsObj[k] && typeof accountsObj[k] === 'object').sort();
-        const optionsHtml = '<option value="">-- 계정 선택 --</option>' +
-            accounts.map(a => `<option value="${String(a).replace(/"/g, '&quot;').replace(/&/g, '&amp;')}">${String(a).replace(/</g, '&lt;')}</option>`).join('');
-        if (select) {
-            select.innerHTML = optionsHtml;
-            if (selectAccountName && accounts.indexOf(selectAccountName) >= 0) select.value = selectAccountName;
+        if (accountInput) {
+            if (selectAccountName && accounts.indexOf(selectAccountName) >= 0) accountInput.value = selectAccountName;
         }
-        if (findSelect) findSelect.innerHTML = optionsHtml;
         if (hintEl) {
             if (accounts.length === 0) {
-                hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요. (같은 주소/URL에서 만든 계정만 표시됩니다)';
+                hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요.';
                 hintEl.style.display = 'block';
             } else {
-                hintEl.style.display = 'none';
+                hintEl.textContent = '저장된 계정: ' + accounts.join(', ');
+                hintEl.style.display = 'block';
             }
         }
     } catch (e) {
@@ -1817,20 +1997,20 @@ function refreshAccountList(selectAccountName) {
     }
 }
 
-function doLogin() {
+async function doLogin() {
     const name = (document.getElementById('accountSelect')?.value || '').trim();
     const password = (document.getElementById('passwordInput')?.value || '').trim();
     if (!name) {
-        alert('계정을 선택하세요.');
+        alert('계정 아이디를 입력하세요.');
         return;
     }
-    const acc = getAccount(name);
+    const acc = await getAccount(name);
     if (!acc || acc.password !== password) {
         alert('비밀번호가 올바르지 않습니다.');
         return;
     }
     currentAccount = name;
-    loadOptionsForAccount(name);
+    await loadOptionsForAccount(name);
     document.getElementById('loginOverlay')?.classList.add('hidden');
     const pwdInput = document.getElementById('passwordInput');
     if (pwdInput) pwdInput.value = '';
@@ -1877,26 +2057,26 @@ function hidePasswordPrompt() {
 function handleDeleteAccount() {
     const name = (document.getElementById('accountSelect')?.value || '').trim();
     if (!name) {
-        alert('삭제할 계정을 선택하세요.');
+        alert('삭제할 계정 아이디를 입력하세요.');
         return;
     }
-    showPasswordPrompt('계정 삭제', name + ' 계정의 비밀번호를 입력하세요. 삭제 후 복구할 수 없습니다.', (pwd) => {
-        const acc = getAccount(name);
+    showPasswordPrompt('계정 삭제', name + ' 계정의 비밀번호를 입력하세요. 삭제 후 복구할 수 없습니다.', async (pwd) => {
+        const acc = await getAccount(name);
         if (!acc || acc.password !== pwd) {
             alert('비밀번호가 올바르지 않습니다.');
             return false;
         }
-        deleteAccountData(name);
-        refreshAccountList();
+        await deleteAccountData(name);
+        await refreshAccountList();
         if (currentAccount === name) currentAccount = '';
         alert('계정이 삭제되었습니다.');
         return true;
     });
 }
 
-function showCreateAccountModal() {
+async function showCreateAccountModal() {
     try {
-        refreshAccountList();
+        await refreshAccountList();
         ['newAccountName', 'newPassword', 'newPasswordConfirm', 'newQuestion', 'newHint', 'newAnswer'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
@@ -2014,7 +2194,7 @@ function checkEditPasswordMatch() {
     }
 }
 
-function handleEditAccount() {
+async function handleEditAccount() {
     const currentPwd = (document.getElementById('editCurrentPassword')?.value || '').trim();
     const newPwd = (document.getElementById('editNewPassword')?.value || '').trim();
     const newPwdConfirm = (document.getElementById('editNewPasswordConfirm')?.value || '').trim();
@@ -2022,7 +2202,7 @@ function handleEditAccount() {
     const hint = (document.getElementById('editHint')?.value || '').trim();
     const answer = (document.getElementById('editAnswer')?.value || '').trim();
     if (!currentPwd) { alert('현재 비밀번호를 입력하세요.'); return; }
-    const acc = getAccount(currentAccount);
+    const acc = await getAccount(currentAccount);
     if (!acc || acc.password !== currentPwd) {
         alert('현재 비밀번호가 올바르지 않습니다.');
         return;
@@ -2033,12 +2213,12 @@ function handleEditAccount() {
     }
     if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
     const finalPassword = newPwd || currentPwd;
-    saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer });
+    await saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer });
     hideEditAccountModal();
     alert('계정 정보가 수정되었습니다.');
 }
 
-function handleCreateAccount() {
+async function handleCreateAccount() {
     try {
         const name = (document.getElementById('newAccountName')?.value || '').trim();
         const pwd = (document.getElementById('newPassword')?.value || '').trim();
@@ -2050,9 +2230,9 @@ function handleCreateAccount() {
         if (!pwd) { alert('비밀번호를 입력하세요.'); return; }
         if (pwd !== pwdConfirm) { alert('비밀번호가 일치하지 않습니다.'); return; }
         if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
-        if (getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
-        saveAccount(name, { password: pwd, question, hint, answer });
-        refreshAccountList(name);
+        if (await getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
+        await saveAccount(name, { password: pwd, question, hint, answer });
+        await refreshAccountList(name);
         hideCreateAccountModal();
         document.getElementById('passwordInput').value = '';
         alert('계정이 생성되었습니다.');
@@ -2062,9 +2242,9 @@ function handleCreateAccount() {
     }
 }
 
-function showFindPasswordModal() {
+async function showFindPasswordModal() {
     try {
-        refreshAccountList();
+        await refreshAccountList();
         ['findPasswordQuestion', 'findPasswordHint', 'findPasswordAnswer', 'findPasswordResult'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.style.display = 'none'; if (id === 'findPasswordAnswer') el.value = ''; }
@@ -2079,18 +2259,18 @@ function showFindPasswordModal() {
     }
 }
 
-function onFindPasswordAccountSelect() {
+async function onFindPasswordAccountSelect() {
     const name = document.getElementById('findPasswordAccountSelect')?.value?.trim();
     const qEl = document.getElementById('findPasswordQuestion');
     const hEl = document.getElementById('findPasswordHint');
     const aEl = document.getElementById('findPasswordAnswer');
     if (!name) {
-        qEl.style.display = 'none';
-        hEl.style.display = 'none';
-        aEl.style.display = 'none';
+        if (qEl) qEl.style.display = 'none';
+        if (hEl) hEl.style.display = 'none';
+        if (aEl) aEl.style.display = 'none';
         return;
     }
-    const acc = getAccount(name);
+    const acc = await getAccount(name);
     if (!acc) return;
     qEl.textContent = '질문: ' + acc.question;
     hEl.textContent = '힌트: ' + (acc.hint || '(없음)');
@@ -2099,7 +2279,7 @@ function onFindPasswordAccountSelect() {
     aEl.style.display = 'block';
 }
 
-function handleFindPassword() {
+async function handleFindPassword() {
     const name = document.getElementById('findPasswordAccountSelect')?.value?.trim();
     const answer = (document.getElementById('findPasswordAnswer')?.value || '').trim();
     const resultEl = document.getElementById('findPasswordResult');
@@ -2107,7 +2287,7 @@ function handleFindPassword() {
         alert('계정을 선택하고 답을 입력하세요.');
         return;
     }
-    const acc = getAccount(name);
+    const acc = await getAccount(name);
     if (!acc) return;
     const correct = acc.answer.trim().toLowerCase() === answer.trim().toLowerCase();
     if (correct) {
@@ -2175,9 +2355,11 @@ function setupLoginHandlers() {
     const editNewPasswordConfirm = document.getElementById('editNewPasswordConfirm');
     if (editNewPasswordConfirm) editNewPasswordConfirm.addEventListener('blur', checkEditPasswordMatch);
     const passwordPromptConfirmBtn = document.getElementById('passwordPromptConfirmBtn');
-    if (passwordPromptConfirmBtn) passwordPromptConfirmBtn.addEventListener('click', () => {
+    if (passwordPromptConfirmBtn) passwordPromptConfirmBtn.addEventListener('click', async () => {
         const pwd = (document.getElementById('passwordPromptInput')?.value || '').trim();
-        if (passwordPromptCallback && passwordPromptCallback(pwd)) hidePasswordPrompt();
+        if (!passwordPromptCallback) return;
+        const result = await passwordPromptCallback(pwd);
+        if (result) hidePasswordPrompt();
     });
     const passwordPromptCancelBtn = document.getElementById('passwordPromptCancelBtn');
     if (passwordPromptCancelBtn) passwordPromptCancelBtn.addEventListener('click', hidePasswordPrompt);
@@ -2214,7 +2396,7 @@ window.addEventListener('resize', () => {
     updateExitButton();
 });
 
-function init() {
+async function init() {
     if (!isLoginScreenVisible()) tryLockLandscape();
     updateRotateOverlay();
     updateFullscreenButton();
@@ -2251,12 +2433,15 @@ function init() {
     mouseX = canvas.width / 2;
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
-    refreshAccountList();
+    await syncLocalToFirestore();
+    await refreshAccountList();
     updateOptionsButtonVisibility();
     updateExitButton();
     setupLoginHandlers();
     draw();
 }
+
+window.addEventListener('online', () => { syncLocalToFirestore(); });
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
