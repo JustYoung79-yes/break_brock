@@ -202,6 +202,18 @@
             margin: 0;
         }
         
+        .login-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 10px 0;
+        }
+        .login-row label {
+            min-width: 70px;
+            color: #b8b8ff;
+            font-size: 1rem;
+        }
+        
         .btn-toggle-pw {
             padding: 10px 14px;
             font-size: 1rem;
@@ -481,11 +493,16 @@
         <div id="loginOverlay" class="overlay">
             <h2>🎮 벽돌깨기</h2>
             <p>계정 아이디를 입력하세요</p>
-            <input type="text" id="accountSelect" class="account-input" placeholder="계정 아이디 입력" maxlength="20" autocomplete="off" style="width:220px; margin:10px 0;">
-            <p id="accountListHint" class="account-hint" style="display:none; font-size:0.85rem; color:#666; margin:8px 0; max-width:280px;"></p>
-            <div class="input-with-toggle" style="margin:10px 0;">
-                <input type="password" id="passwordInput" placeholder="비밀번호" maxlength="30" class="account-input">
-                <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
+            <div class="login-row">
+                <label for="accountSelect">아이디</label>
+                <input type="text" id="accountSelect" class="account-input" placeholder="계정 아이디 입력" maxlength="20" autocomplete="off" style="width:220px;">
+            </div>
+            <div class="login-row">
+                <label for="passwordInput">비밀번호</label>
+                <div class="input-with-toggle" style="margin:0;">
+                    <input type="password" id="passwordInput" placeholder="비밀번호" maxlength="30" class="account-input">
+                    <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
+                </div>
             </div>
             <div class="overlay-buttons" style="margin-top:15px;">
                 <button type="button" class="btn" id="loginBtn">로그인</button>
@@ -580,8 +597,8 @@
             <input type="text" id="findPasswordAnswer" placeholder="질문에 대한 답 입력" maxlength="30" class="account-input" style="margin:10px 0; display:none;">
             <p id="findPasswordResult" style="margin:15px 0; color:#ffd700; font-weight:bold; display:none;"></p>
             <div class="overlay-buttons" style="margin-top:15px;">
-                <button class="btn" id="findPasswordSubmitBtn">확인</button>
-                <button class="btn btn-small btn-outline" id="findPasswordCancelBtn">닫기</button>
+                <button type="button" class="btn" id="findPasswordSubmitBtn" onclick="typeof handleFindPassword==='function'&&handleFindPassword()">확인</button>
+                <button type="button" class="btn btn-small btn-outline" id="findPasswordCancelBtn" onclick="document.getElementById('findPasswordModal')?.classList.add('hidden')">닫기</button>
             </div>
         </div>
         

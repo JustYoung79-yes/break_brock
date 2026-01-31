@@ -1475,6 +1475,7 @@ const MAX_RANKING = 20;
 const RANKING_DISPLAY_COUNT = 20;
 const ACCOUNTS_KEY = 'brickBreakerAccounts';
 const RANKING_KEY = 'brickBreakerRanking';
+const FIRESTORE_TIMEOUT_MS = 8000;
 
 function isOnline() {
     return typeof navigator !== 'undefined' && navigator.onLine;
@@ -1503,6 +1504,13 @@ function setAccountsToLocal(accounts) {
 
 function setRankingToLocal(ranking) {
     try { localStorage.setItem(RANKING_KEY, JSON.stringify(ranking)); } catch (e) {}
+}
+
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('타임아웃')), ms))
+    ]);
 }
 
 async function syncLocalToFirestore() {
@@ -1634,7 +1642,7 @@ async function saveOptionsToAccount() {
 async function getRanking() {
     if (firestoreDb && isOnline()) {
         try {
-            const docSnap = await firestoreDb.collection('game').doc('data').get();
+            const docSnap = await withTimeout(firestoreDb.collection('game').doc('data').get(), FIRESTORE_TIMEOUT_MS);
             const data = docSnap.exists ? docSnap.data() : {};
             const ranking = data.ranking;
             if (Array.isArray(ranking)) {
@@ -1649,7 +1657,13 @@ async function getRanking() {
 }
 
 async function saveToRanking(score) {
-    const ranking = await getRanking();
+    let ranking;
+    try {
+        ranking = await getRanking();
+    } catch (e) {
+        console.warn('saveToRanking getRanking 오류:', e);
+        ranking = getRankingFromLocal();
+    }
     ranking.push({
         account: currentAccount || '게스트',
         score,
@@ -1661,7 +1675,7 @@ async function saveToRanking(score) {
     setRankingToLocal(trimmed);
     if (firestoreDb && isOnline()) {
         try {
-            await firestoreDb.collection('game').doc('data').set({ ranking: trimmed }, { merge: true });
+            await withTimeout(firestoreDb.collection('game').doc('data').set({ ranking: trimmed }, { merge: true }), FIRESTORE_TIMEOUT_MS);
         } catch (e) {
             console.warn('saveToRanking Firestore 오류:', e);
         }
@@ -1725,8 +1739,14 @@ function formatRankingDate(isoStr) {
 async function renderRanking(elementId) {
     const el = document.getElementById(elementId);
     if (!el) return;
-    const ranking = await getRanking();
-    if (!ranking.length) {
+    let ranking;
+    try {
+        ranking = await getRanking();
+    } catch (e) {
+        console.warn('renderRanking getRanking 오류:', e);
+        ranking = getRankingFromLocal();
+    }
+    if (!ranking || !ranking.length) {
         el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
         return;
     }
@@ -1745,49 +1765,85 @@ async function resetRankingUI() {
     if (celebration) celebration.classList.add('hidden');
 }
 
-async function gameOver() {
+function gameOver() {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
     saveGameState();
-    await saveToRanking(score);
-    const ranking = await getRanking();
-    const isFirst = ranking.length > 0 && ranking[0].score === score;
     document.getElementById('finalScore').textContent = score;
-    const goFirstEl = document.getElementById('gameOverFirstPlace');
-    if (goFirstEl) {
-        if (isFirst) {
-            goFirstEl.textContent = '🎊 1등 축하합니다! 🎊';
-            goFirstEl.classList.remove('hidden');
-            playVictoryMusic();
-        } else {
-            goFirstEl.classList.add('hidden');
-        }
-    }
-    await renderRanking('rankingDisplay');
     document.getElementById('gameOverOverlay')?.classList.remove('hidden');
+    (async () => {
+        try {
+            await saveToRanking(score);
+            const ranking = await getRanking();
+            const isFirst = ranking.length > 0 && ranking[0].score === score;
+            const goFirstEl = document.getElementById('gameOverFirstPlace');
+            if (goFirstEl) {
+                if (isFirst) {
+                    goFirstEl.textContent = '🎊 1등 축하합니다! 🎊';
+                    goFirstEl.classList.remove('hidden');
+                    playVictoryMusic();
+                } else {
+                    goFirstEl.classList.add('hidden');
+                }
+            }
+            await renderRanking('rankingDisplay');
+        } catch (e) {
+            console.warn('gameOver 점수 처리 오류:', e);
+            const ranking = getRankingFromLocal();
+            const el = document.getElementById('rankingDisplay');
+            if (el) {
+                if (!ranking.length) {
+                    el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록을 불러올 수 없습니다</p>';
+                } else {
+                    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
+                        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
+                    ).join('');
+                    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
+                }
+            }
+        }
+    })();
 }
 
-async function winGame() {
+function winGame() {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
-    await saveToRanking(score);
-    const ranking = await getRanking();
-    const isFirst = ranking.length > 0 && ranking[0].score === score;
     document.getElementById('winScore').textContent = score;
-    await renderRanking('winRankingDisplay');
-    const celebrationEl = document.getElementById('firstPlaceCelebration');
-    if (celebrationEl) {
-        if (isFirst) {
-            celebrationEl.textContent = '🎊 1등 축하합니다! 🎊';
-            celebrationEl.classList.remove('hidden');
-        } else {
-            celebrationEl.classList.add('hidden');
-        }
-    }
-    playVictoryMusic();
     document.getElementById('winOverlay')?.classList.remove('hidden');
+    (async () => {
+        try {
+            await saveToRanking(score);
+            const ranking = await getRanking();
+            const isFirst = ranking.length > 0 && ranking[0].score === score;
+            const celebrationEl = document.getElementById('firstPlaceCelebration');
+            if (celebrationEl) {
+                if (isFirst) {
+                    celebrationEl.textContent = '🎊 1등 축하합니다! 🎊';
+                    celebrationEl.classList.remove('hidden');
+                } else {
+                    celebrationEl.classList.add('hidden');
+                }
+            }
+            playVictoryMusic();
+            await renderRanking('winRankingDisplay');
+        } catch (e) {
+            console.warn('winGame 점수 처리 오류:', e);
+            const ranking = getRankingFromLocal();
+            const el = document.getElementById('winRankingDisplay');
+            if (el) {
+                if (!ranking.length) {
+                    el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록을 불러올 수 없습니다</p>';
+                } else {
+                    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
+                        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
+                    ).join('');
+                    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
+                }
+            }
+        }
+    })();
 }
 
 function playVictoryMusic() {
@@ -1977,20 +2033,10 @@ async function refreshAccountList(selectAccountName) {
     if (STAGE6_ONLY) return;
     try {
         const accountInput = document.getElementById('accountSelect');
-        const hintEl = document.getElementById('accountListHint');
         const accountsObj = await getAccounts();
         const accounts = Object.keys(accountsObj).filter(k => accountsObj[k] && typeof accountsObj[k] === 'object').sort();
         if (accountInput) {
             if (selectAccountName && accounts.indexOf(selectAccountName) >= 0) accountInput.value = selectAccountName;
-        }
-        if (hintEl) {
-            if (accounts.length === 0) {
-                hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요.';
-                hintEl.style.display = 'block';
-            } else {
-                hintEl.textContent = '저장된 계정: ' + accounts.join(', ');
-                hintEl.style.display = 'block';
-            }
         }
     } catch (e) {
         console.error('refreshAccountList 오류:', e);
@@ -2306,8 +2352,6 @@ async function handleFindPassword() {
 
 function setupLoginHandlers() {
     if (STAGE6_ONLY) return;
-    const loginBtn = document.getElementById('loginBtn');
-    if (loginBtn) loginBtn.addEventListener('click', doLogin);
     const passwordInput = document.getElementById('passwordInput');
     if (passwordInput) passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
     document.addEventListener('click', (e) => {
@@ -2433,15 +2477,27 @@ async function init() {
     mouseX = canvas.width / 2;
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
-    await syncLocalToFirestore();
-    await refreshAccountList();
+    try {
+        await syncLocalToFirestore();
+        await refreshAccountList();
+    } catch (e) {
+        console.warn('초기 데이터 로드 오류:', e);
+    }
     updateOptionsButtonVisibility();
     updateExitButton();
     setupLoginHandlers();
     draw();
 }
 
+window.doLogin = doLogin;
 window.addEventListener('online', () => { syncLocalToFirestore(); });
+
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'loginBtn') {
+        e.preventDefault();
+        doLogin();
+    }
+});
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
