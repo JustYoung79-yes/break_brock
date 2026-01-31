@@ -1373,8 +1373,19 @@ function draw() {
     drawBossHPBar();
 }
 
+function isAnyPauseOverlayVisible() {
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal'];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && !el.classList.contains('hidden')) return true;
+    }
+    return false;
+}
+
 function gameLoop(now = performance.now()) {
     if (!gameRunning) return;
+    if (isAnyPauseOverlayVisible()) gamePaused = true;
+    else gamePaused = false;
     if (gamePaused) {
         lastFrameTime = now;
         animationId = requestAnimationFrame(gameLoop);
