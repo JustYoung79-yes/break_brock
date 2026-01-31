@@ -335,6 +335,21 @@
             from { transform: scale(1); }
             to { transform: scale(1.1); }
         }
+        
+        /* 모바일 세로 모드 */
+        @media (max-width: 500px), (max-height: 700px) and (orientation: portrait) {
+            body { padding: 8px; overflow-x: hidden; }
+            .game-container { padding: 10px; max-width: 100%; }
+            h1 { font-size: 1.3rem; margin-bottom: 8px; }
+            .info-bar { font-size: 0.85rem; margin-bottom: 6px; }
+            .controls { font-size: 0.75rem; margin-top: 8px; }
+            canvas { max-width: 100%; height: auto; touch-action: none; }
+            .overlay h2 { font-size: 1.5rem; }
+            .overlay p { font-size: 0.95rem; margin-bottom: 15px; }
+            .account-input { width: 90%; max-width: 280px; }
+            .btn { padding: 12px 24px; font-size: 1rem; }
+            .btn-small { padding: 6px 14px; font-size: 0.85rem; }
+        }
     </style>
 </head>
 <body>
@@ -506,6 +521,7 @@
             <div class="option-row">
                 <label>화면 크기</label>
                 <select id="screenSize">
+                    <option value="portrait">세로 (모바일)</option>
                     <option value="small">작음 (640×480)</option>
                     <option value="medium" selected>보통 (800×600)</option>
                     <option value="large">큼 (960×720)</option>

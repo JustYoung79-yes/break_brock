@@ -28,6 +28,19 @@ let options = {
     canvasHeight: 600,
 };
 
+// 모바일 세로 모드 감지
+function isMobilePortrait() {
+    return window.innerWidth < window.innerHeight && window.innerWidth <= 600;
+}
+
+function applyMobilePortraitDimensions() {
+    if (!isMobilePortrait()) return;
+    const maxW = Math.min(window.innerWidth - 40, 420);
+    const maxH = Math.min(window.innerHeight - 200, 700);
+    options.canvasWidth = maxW;
+    options.canvasHeight = maxH;
+}
+
 // 게임 상태
 let gameRunning = false;
 let gamePaused = false;
@@ -250,12 +263,42 @@ let mouseX = canvas.width / 2;
 let keys = {};
 let lastInputMethod = 'mouse';
 
-canvas.addEventListener('mousemove', (e) => {
+function getCanvasX(clientX) {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
-    mouseX = (e.clientX - rect.left) * scaleX;
+    return (clientX - rect.left) * scaleX;
+}
+
+canvas.addEventListener('mousemove', (e) => {
+    mouseX = getCanvasX(e.clientX);
     lastInputMethod = 'mouse';
 });
+
+// 터치 지원 (모바일 세로 모드)
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (e.touches.length > 0) {
+        mouseX = getCanvasX(e.touches[0].clientX);
+        lastInputMethod = 'mouse';
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 0) {
+        mouseX = getCanvasX(e.touches[0].clientX);
+        lastInputMethod = 'mouse';
+    }
+}, { passive: true });
+
+// 탭으로 공 출발
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (gameRunning && !gamePaused && !ballLaunched && e.changedTouches.length > 0) {
+        launchBall();
+    } else if (gameRunning && !gamePaused && hasBulletPower && e.changedTouches.length > 0) {
+        shootBullet();
+    }
+}, { passive: false });
 
 document.addEventListener('keydown', (e) => {
     if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
@@ -1171,8 +1214,11 @@ function applyOptions() {
     if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
     else if (blockCount === 'large') { options.brickRows = 8; options.brickCols = 12; }
     else { options.brickRows = 6; options.brickCols = 10; }
-    const screenSize = document.getElementById('screenSize').value;
-    if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
+    const screenSizeEl = document.getElementById('screenSize');
+    const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
+    if (screenSize === 'portrait' || isMobilePortrait()) {
+        applyMobilePortraitDimensions();
+    } else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
     else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
     else { options.canvasWidth = 800; options.canvasHeight = 600; }
     paddle.speed = options.paddleSpeed;
@@ -1456,8 +1502,8 @@ function openOptions() {
     document.getElementById('ballSpeedVal').textContent = options.ballSpeed;
     document.getElementById('blockCount').value =
         options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
-    document.getElementById('screenSize').value =
-        options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
+    const ssEl = document.getElementById('screenSize');
+    if (ssEl) ssEl.value = options.canvasWidth <= 420 ? 'portrait' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
     document.getElementById('optionsPanel').classList.remove('hidden');
 }
 
@@ -1471,8 +1517,11 @@ document.getElementById('optionsCloseBtn').addEventListener('click', () => {
     if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
     else if (blockCount === 'large') { options.brickRows = 8; options.brickCols = 12; }
     else { options.brickRows = 6; options.brickCols = 10; }
-    const screenSize = document.getElementById('screenSize').value;
-    if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
+    const screenSizeEl = document.getElementById('screenSize');
+    const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
+    if (screenSize === 'portrait' || isMobilePortrait()) {
+        applyMobilePortraitDimensions();
+    } else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
     else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
     else { options.canvasWidth = 800; options.canvasHeight = 600; }
     paddle.speed = options.paddleSpeed;
@@ -1844,6 +1893,7 @@ const resetRankingBtn = document.getElementById('resetRankingBtn');
 if (resetRankingBtn) resetRankingBtn.addEventListener('click', handleResetRanking);
 
 function init() {
+    if (isMobilePortrait()) applyMobilePortraitDimensions();
     applyOptions();
     if (STAGE6_ONLY || BOSS6_TEST) {
         currentStage = 6;
