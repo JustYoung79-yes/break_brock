@@ -34,6 +34,11 @@ let options = {
     canvasHeight: 600,
 };
 
+// UI 동기화 (메인+사이드바)
+function updateStageUI(v) { document.querySelectorAll('.stageVal').forEach(el => { el.textContent = v; }); }
+function updateScoreUI(v) { document.querySelectorAll('.scoreVal').forEach(el => { el.textContent = v; }); }
+function updateLivesUI(v) { document.querySelectorAll('.livesVal').forEach(el => { el.textContent = v; }); }
+
 // 모바일 감지
 function isMobile() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
@@ -48,14 +53,13 @@ function isFullscreen() {
     return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
 }
 
-// 모바일 가로 모드용 캔버스 크기 (전체화면 시 주소창 제외하여 최대 활용)
+// 모바일 가로 모드용 캔버스 크기 (게임창 세로 꽉, UI 오른쪽 패널)
 function applyMobileLandscapeDimensions() {
     if (!isMobile() || !isLandscape()) return;
-    const fs = isFullscreen();
-    const padW = fs ? 20 : 40;
-    const padH = fs ? 100 : 180;  // 전체화면 시 헤더/인포/컨트롤만 (주소창 제외)
-    const maxW = Math.max(200, Math.min(window.innerWidth - padW, 960));
-    const maxH = Math.max(200, Math.min(window.innerHeight - padH, 600));
+    const sidebarW = 140;
+    const pad = 16;
+    const maxW = Math.max(200, Math.min(window.innerWidth - sidebarW - pad, 960));
+    const maxH = Math.max(200, Math.min(window.innerHeight - pad, 600));
     options.canvasWidth = maxW;
     options.canvasHeight = maxH;
 }
@@ -239,7 +243,10 @@ function createBricks() {
     const cols = config.cols;
     const padding = Math.max(2, BRICK_PADDING - currentStage);
     const brickWidth = (options.canvasWidth - BRICK_OFFSET_LEFT * 2 - padding * (cols - 1)) / cols;
-    const brickHeight = Math.max(14, 24 - currentStage * 2);
+    const paddleArea = 80;
+    const availableHeight = options.canvasHeight - BRICK_OFFSET_TOP - paddleArea;
+    const maxBrickHeight = Math.max(12, (availableHeight - padding * (rows - 1)) / rows);
+    const brickHeight = Math.min(Math.max(14, 24 - currentStage * 2), maxBrickHeight);
 
     const validPositions = [];
     for (let r = 0; r < rows; r++) {
@@ -551,7 +558,7 @@ function applyItemEffect(type) {
     switch (type) {
         case 'LIFE':
             lives++;
-            document.getElementById('lives').textContent = lives;
+            updateLivesUI(lives);
             break;
         case 'PADDLE_2X':
             paddle.width = Math.min(paddle.baseWidth * 2, canvas.width * 0.8);
@@ -588,7 +595,7 @@ function applyItemEffect(type) {
             break;
         case 'EXTRA_POINTS':
             score += 100;
-            document.getElementById('score').textContent = score;
+            updateScoreUI(score);
             break;
         case 'LASER':
             const topRow = bricks.findIndex(row => row.some(b => b && b.visible));
@@ -599,7 +606,7 @@ function applyItemEffect(type) {
                         score += 10;
                     }
                 });
-                document.getElementById('score').textContent = score;
+                updateScoreUI(score);
             }
             break;
     }
@@ -688,7 +695,7 @@ function hitBrick(brick, isBullet = false) {
     }
     if (brick.isBoss && currentStage === 6 && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
     score += brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
-    document.getElementById('score').textContent = score;
+    updateScoreUI(score);
     if (brick.hp <= 0) {
         brick.visible = false;
         if (brick.isItem && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
@@ -835,7 +842,7 @@ function updateBullets(dt = 1) {
             b.x + b.width > paddle.x && b.x < paddle.x + paddle.width) {
             if (b.isBomb) {
                 lives--;
-                document.getElementById('lives').textContent = lives;
+                updateLivesUI(lives);
                 if (lives <= 0) gameOver();
                 else resetBall();
             } else {
@@ -909,7 +916,7 @@ function updateBall(dt = 1) {
             balls.splice(bi, 1);
             if (balls.length === 0) {
                 lives--;
-                document.getElementById('lives').textContent = lives;
+                updateLivesUI(lives);
                 if (lives <= 0) {
                     gameOver();
                 } else {
@@ -992,7 +999,7 @@ function showStageClearAndNext() {
     setTimeout(() => {
         if (resetBtn) { resetBtn.style.display = 'none'; }
         currentStage++;
-        document.getElementById('stage').textContent = currentStage;
+        updateStageUI(currentStage);
         if (currentStage === 6) {
             options.ballSpeed = 7;
             const ballSpeedEl = document.getElementById('ballSpeed');
@@ -1005,6 +1012,7 @@ function showStageClearAndNext() {
 }
 
 function showStageStartAndResume() {
+    startBGM(currentStage);
     const msgEl = document.getElementById('stageMsgText');
     const overlayEl = document.getElementById('stageMsgOverlay');
     const resetBtn = document.getElementById('resetRankingStageBtn');
@@ -1339,21 +1347,21 @@ function startGame(isNewGame = true) {
         score = 0;
         lives = 3;
         currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : 1;
-        document.getElementById('stage').textContent = currentStage;
+        updateStageUI(currentStage);
         bricks = createBricks();
     } else if (savedGameState) {
         score = savedGameState.score;
         lives = savedGameState.lives;
         currentStage = savedGameState.stage || 1;
-        document.getElementById('stage').textContent = currentStage;
+        updateStageUI(currentStage);
         bricks = savedGameState.bricks;
     } else {
         score = 0;
         lives = 3;
         bricks = createBricks();
     }
-    document.getElementById('score').textContent = score;
-    document.getElementById('lives').textContent = lives;
+    updateScoreUI(score);
+    updateLivesUI(lives);
     document.getElementById('startOverlay').classList.add('hidden');
     document.getElementById('gameOverOverlay').classList.add('hidden');
     document.getElementById('winOverlay').classList.add('hidden');
@@ -1402,7 +1410,7 @@ function unlockAudio() {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+        audioCtx.resume().catch(() => {});
     }
 }
 
@@ -1613,18 +1621,20 @@ function openOptions() {
 }
 
 document.getElementById('optionsBtn').addEventListener('click', openOptions);
+const optionsBtnSide = document.getElementById('optionsBtnSide');
+if (optionsBtnSide) optionsBtnSide.addEventListener('click', openOptions);
 
 function updateFullscreenButton() {
-    const btn = document.getElementById('fullscreenBtn');
-    if (!btn) return;
-    btn.style.display = isMobile() ? '' : 'none';
-    btn.textContent = isFullscreen() ? '⛶' : '⛶';
-    btn.title = isFullscreen() ? '전체화면 해제' : '전체화면';
+    const btns = document.querySelectorAll('#fullscreenBtn, #fullscreenBtnSide');
+    btns.forEach(btn => {
+        if (!btn) return;
+        btn.style.display = isMobile() ? '' : 'none';
+        btn.textContent = '⛶';
+        btn.title = isFullscreen() ? '전체화면 해제' : '전체화면';
+    });
 }
-const fullscreenBtn = document.getElementById('fullscreenBtn');
-if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
-    toggleFullscreen();
-});
+document.querySelectorAll('#fullscreenBtn, #fullscreenBtnSide').forEach(b => { if (b) b.addEventListener('click', toggleFullscreen); });
+document.querySelectorAll('#exitBtn, #exitBtnSide').forEach(b => { if (b) b.addEventListener('click', doExit); });
 
 function onFullscreenChange() {
     updateFullscreenButton();
@@ -1723,6 +1733,16 @@ function doLogin() {
     const accDisplay = document.getElementById('currentAccountDisplay');
     if (accDisplay) accDisplay.textContent = '(' + name + ')';
     document.getElementById('startOverlay').classList.remove('hidden');
+    updateRotateOverlay();
+    updateExitButton();
+    if (isMobile()) {
+        tryLockLandscape();
+        if (!isFullscreen()) {
+            const el = document.documentElement;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+            if (req) req.call(el).catch(() => {});
+        }
+    }
 }
 
 let passwordPromptCallback = null;
@@ -1824,13 +1844,15 @@ function hideCreateAccountModal() {
 }
 
 function updateOptionsButtonVisibility() {
-    const optionsBtn = document.getElementById('optionsBtn');
-    if (!optionsBtn) return;
     const loginEl = document.getElementById('loginOverlay');
     const editEl = document.getElementById('editAccountModal');
     const loginVisible = loginEl && !loginEl.classList.contains('hidden');
     const editVisible = editEl && !editEl.classList.contains('hidden');
-    optionsBtn.style.display = (loginVisible || editVisible) ? 'none' : '';
+    const hide = (loginVisible || editVisible);
+    document.querySelectorAll('#optionsBtn, #optionsBtnSide').forEach(btn => {
+        if (btn) btn.style.display = hide ? 'none' : '';
+    });
+    updateExitButton();
 }
 
 function showEditAccountModal() {
@@ -2059,10 +2081,11 @@ window.addEventListener('orientationchange', handleOrientationOrResize);
 window.addEventListener('resize', () => {
     if (isMobile()) handleOrientationOrResize();
     updateFullscreenButton();
+    updateExitButton();
 });
 
 function init() {
-    tryLockLandscape();
+    if (!isLoginScreenVisible()) tryLockLandscape();
     updateRotateOverlay();
     updateFullscreenButton();
     if (isMobile() && isLandscape()) applyMobileLandscapeDimensions();
@@ -2076,7 +2099,7 @@ function init() {
         balls = [{ x: canvas.width / 2, y: paddle.y - BALL_RADIUS - 5, dx: 0, dy: 0, radius: BALL_RADIUS }];
         ballLaunched = false;
         mouseX = canvas.width / 2;
-        document.getElementById('stage').textContent = 6;
+        updateStageUI(6);
         document.getElementById('startOverlay').classList.remove('hidden');
         const loginEl = document.getElementById('loginOverlay');
         if (loginEl) loginEl.classList.add('hidden');
@@ -2100,6 +2123,7 @@ function init() {
     document.getElementById('loginOverlay').classList.remove('hidden');
     refreshAccountList();
     updateOptionsButtonVisibility();
+    updateExitButton();
     draw();
 }
 

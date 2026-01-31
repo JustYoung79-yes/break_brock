@@ -22,7 +22,8 @@
             justify-content: center;
             background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
             font-family: 'Noto Sans KR', sans-serif;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
         
         .game-container {
@@ -34,7 +35,9 @@
                 0 0 60px rgba(138, 43, 226, 0.3),
                 inset 0 0 60px rgba(0, 0, 0, 0.3);
             border: 2px solid rgba(138, 43, 226, 0.5);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: 100vh;
         }
         
         h1 {
@@ -87,6 +90,9 @@
             border-radius: 16px;
             color: white;
             z-index: 10;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
         }
         
         .overlay.hidden {
@@ -360,19 +366,49 @@
             #rotateOverlay p { font-size: 0.9rem; margin-bottom: 10px; }
             #rotateOverlay p:last-of-type { font-size: 2rem; margin: 12px 0; }
         }
-        /* 모바일 가로 모드 */
-        @media (max-height: 500px), (orientation: landscape) and (max-width: 900px) {
-            body { padding: 8px; overflow: hidden; }
+        /* 모바일 가로 모드: 게임창 세로 꽉, UI 오른쪽 패널 */
+        @media (orientation: landscape) and (max-width: 900px) {
+            body { padding: 4px; overflow: hidden; }
+            .game-container {
+                display: flex;
+                flex-direction: row;
+                align-items: stretch;
+                padding: 8px;
+                max-width: 100vw;
+                max-height: 100vh;
+                gap: 8px;
+            }
+            .game-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: stretch; align-items: stretch; }
+            .game-sidebar {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 8px;
+                min-width: 100px;
+                max-width: 140px;
+                padding: 8px 0;
+            }
+            .game-sidebar .header-buttons { flex-direction: column; margin-bottom: 0; }
+            .game-sidebar .header-buttons h1 { font-size: 0.9rem; margin-bottom: 4px; }
+            .game-sidebar .info-bar { flex-direction: column; align-items: flex-start; font-size: 0.75rem; margin-bottom: 0; }
+            .game-sidebar .controls { font-size: 0.6rem; margin-top: 0; text-align: left; line-height: 1.3; }
+            .game-sidebar .header-btns { flex-direction: column; }
+            .game-main canvas { flex: 1; min-height: 0; width: 100% !important; height: 100% !important; max-height: 100%; touch-action: none; }
+        }
+        /* 모바일 세로/짧은 화면 */
+        @media (max-height: 500px) {
+            body { padding: 8px; overflow-y: auto; overflow-x: hidden; }
             .game-container { padding: 10px; max-width: 100%; }
             h1 { font-size: 1.2rem; margin-bottom: 6px; }
             .info-bar { font-size: 0.8rem; margin-bottom: 6px; }
             .controls { font-size: 0.7rem; margin-top: 6px; }
             canvas { max-width: 100%; max-height: 70vh; touch-action: none; }
-            .overlay h2 { font-size: 1.4rem; }
-            .overlay p { font-size: 0.9rem; margin-bottom: 12px; }
-            .account-input { width: 90%; max-width: 260px; }
-            .btn { padding: 10px 20px; font-size: 0.95rem; }
-            .btn-small { padding: 6px 12px; font-size: 0.8rem; }
+        }
+        @media (orientation: portrait) or (min-width: 901px) {
+            .game-sidebar { display: none !important; }
+        }
+        @media (orientation: landscape) and (max-width: 900px) {
+            .game-main .header-buttons, .game-main .info-bar, .game-main .controls { display: none !important; }
         }
         @media (orientation: landscape) and (max-width: 900px) {
             #rotateOverlay { display: none !important; }
@@ -381,20 +417,39 @@
 </head>
 <body>
     <div class="game-container">
-        <div class="header-buttons">
-            <h1>🎮 벽돌깨기</h1>
-            <div class="header-btns">
-                <button class="btn btn-small" id="fullscreenBtn" title="전체화면" style="display:none;">⛶</button>
-                <button class="btn btn-small" id="optionsBtn">옵션</button>
+        <div class="game-main">
+            <div class="header-buttons header-top">
+                <h1>🎮 벽돌깨기</h1>
+                <div class="header-btns">
+                    <button class="btn btn-small" id="exitBtn" title="종료" style="display:none;">✕</button>
+                    <button class="btn btn-small" id="fullscreenBtn" title="전체화면" style="display:none;">⛶</button>
+                    <button class="btn btn-small" id="optionsBtn">옵션</button>
+                </div>
             </div>
+            <div class="info-bar info-top">
+                <span>스테이지: <span id="stage" class="stageVal">1</span></span>
+                <span>점수: <span id="score" class="scoreVal">0</span></span>
+                <span>생명: <span id="lives" class="livesVal">3</span></span>
+            </div>
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+            <p class="controls controls-bottom">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
         </div>
-        <div class="info-bar">
-            <span>스테이지: <span id="stage">1</span></span>
-            <span>점수: <span id="score">0</span></span>
-            <span>생명: <span id="lives">3</span></span>
+        <div class="game-sidebar">
+            <div class="header-buttons">
+                <h1>🎮 벽돌깨기</h1>
+                <div class="header-btns">
+                    <button class="btn btn-small" id="exitBtnSide" title="종료" style="display:none;">✕</button>
+                    <button class="btn btn-small" id="fullscreenBtnSide" title="전체화면" style="display:none;">⛶</button>
+                    <button class="btn btn-small" id="optionsBtnSide" title="옵션">옵션</button>
+                </div>
+            </div>
+            <div class="info-bar">
+                <span>스테이지: <span class="stageVal">1</span></span>
+                <span>점수: <span class="scoreVal">0</span></span>
+                <span>생명: <span class="livesVal">3</span></span>
+            </div>
+            <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
         </div>
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-        <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
         
         <div id="rotateOverlay" class="overlay" style="z-index:100; background: rgba(0,0,0,0.95); display:none;">
             <h2>📱 가로 모드로 전환해 주세요</h2>
