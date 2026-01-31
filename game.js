@@ -4,10 +4,16 @@ const ctx = canvas.getContext('2d');
 const STAGE6_ONLY = (typeof window !== 'undefined' && window.STAGE6_ONLY) || false;
 const BOSS6_TEST = (typeof window !== 'undefined' && window.BOSS6_TEST) || false;
 
-// 폴더 구조에 따른 경로 (Ver01/Ver02 기준 상위 폴더 참조)
+// 폴더 구조에 따른 경로 (GitHub Pages 등 서브경로 대응)
+const PATH_BASE = (function() {
+    if (window.location.protocol === 'file:') return './';
+    const path = window.location.pathname;
+    const lastSlash = path.lastIndexOf('/');
+    return lastSlash >= 0 ? path.substring(0, lastSlash + 1) : './';
+})();
 const PATH = {
-    image: '../그림/',
-    bgm: '../배경음악/'
+    image: PATH_BASE + '그림/',
+    bgm: PATH_BASE + '배경음악/'
 };
 
 // 게임 설정 (옵션에서 변경 가능)
@@ -28,17 +34,43 @@ let options = {
     canvasHeight: 600,
 };
 
-// 모바일 세로 모드 감지
-function isMobilePortrait() {
-    return window.innerWidth < window.innerHeight && window.innerWidth <= 600;
+// 모바일 감지
+function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
 }
 
-function applyMobilePortraitDimensions() {
-    if (!isMobilePortrait()) return;
-    const maxW = Math.min(window.innerWidth - 40, 420);
-    const maxH = Math.min(window.innerHeight - 200, 700);
+function isLandscape() {
+    return window.innerWidth >= window.innerHeight;
+}
+
+// 모바일 가로 모드용 캔버스 크기
+function applyMobileLandscapeDimensions() {
+    if (!isMobile() || !isLandscape()) return;
+    const maxW = Math.min(window.innerWidth - 40, 960);
+    const maxH = Math.min(window.innerHeight - 180, 600);
     options.canvasWidth = maxW;
     options.canvasHeight = maxH;
+}
+
+// 가로 모드 고정 시도
+function tryLockLandscape() {
+    if (!isMobile()) return;
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+    }
+}
+
+// 회전 안내 오버레이 표시 (모바일 세로 모드일 때)
+function updateRotateOverlay() {
+    const el = document.getElementById('rotateOverlay');
+    if (!el) return;
+    if (isMobile() && !isLandscape()) {
+        el.style.display = 'flex';
+        el.classList.remove('hidden');
+    } else {
+        el.style.display = 'none';
+        el.classList.add('hidden');
+    }
 }
 
 // 게임 상태
@@ -258,6 +290,11 @@ function createBricks() {
 
 let bricks = [];
 
+// delta time (공 속도 일정화 - 모바일 프레임레이트 변동 대응)
+let lastFrameTime = performance.now();
+const TARGET_FPS = 60;
+const FRAME_MS = 1000 / TARGET_FPS;
+
 // 입력 처리
 let mouseX = canvas.width / 2;
 let keys = {};
@@ -274,29 +311,47 @@ canvas.addEventListener('mousemove', (e) => {
     lastInputMethod = 'mouse';
 });
 
-// 터치 지원 (모바일 세로 모드)
-canvas.addEventListener('touchmove', (e) => {
+// 터치 지원 (모바일 세로 모드) - 상대 이동, 스크롤 방지
+let touchOnCanvas = false;
+let lastTouchX = 0;
+canvas.addEventListener('touchstart', (e) => {
+    touchOnCanvas = true;
+    unlockAudio();
     e.preventDefault();
     if (e.touches.length > 0) {
-        mouseX = getCanvasX(e.touches[0].clientX);
-        lastInputMethod = 'mouse';
+        lastTouchX = getCanvasX(e.touches[0].clientX);
+        lastInputMethod = 'touch';
     }
 }, { passive: false });
 
-canvas.addEventListener('touchstart', (e) => {
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
     if (e.touches.length > 0) {
-        mouseX = getCanvasX(e.touches[0].clientX);
-        lastInputMethod = 'mouse';
+        const currentX = getCanvasX(e.touches[0].clientX);
+        const delta = currentX - lastTouchX;
+        paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + delta));
+        lastTouchX = currentX;
     }
-}, { passive: true });
+}, { passive: false });
 
-// 탭으로 공 출발
 canvas.addEventListener('touchend', (e) => {
+    touchOnCanvas = false;
     e.preventDefault();
     if (gameRunning && !gamePaused && !ballLaunched && e.changedTouches.length > 0) {
         launchBall();
     } else if (gameRunning && !gamePaused && hasBulletPower && e.changedTouches.length > 0) {
         shootBullet();
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', () => {
+    touchOnCanvas = false;
+}, { passive: true });
+
+// document 레벨에서 캔버스 터치 시 스크롤 방지 (일부 모바일 브라우저 대응)
+document.addEventListener('touchmove', (e) => {
+    if (touchOnCanvas && gameRunning) {
+        e.preventDefault();
     }
 }, { passive: false });
 
@@ -561,14 +616,14 @@ function updateActiveItems() {
     else paddle.width = paddle.baseWidth;
 }
 
-function updateFallingItems() {
+function updateFallingItems(dt = 1) {
     const magnetActive = activeItems.some(i => i.type === 'magnet');
     fallingItems = fallingItems.filter(item => {
         if (magnetActive) {
             const paddleCenter = paddle.x + paddle.width / 2;
-            item.x += (paddleCenter - (item.x + item.width/2)) * 0.05;
+            item.x += (paddleCenter - (item.x + item.width/2)) * 0.05 * dt;
         }
-        item.y += item.dy;
+        item.y += item.dy * dt;
         if (item.y + item.height > paddle.y &&
             item.y < paddle.y + paddle.height &&
             item.x + item.width > paddle.x &&
@@ -616,7 +671,7 @@ function hitBrick(brick, isBullet = false) {
     }
 }
 
-function updateBoss() {
+function updateBoss(dt = 1) {
     const cfg = BOSS_CONFIG[currentStage] || BOSS_CONFIG[1];
     bricks.forEach(row => {
         row.forEach(brick => {
@@ -631,7 +686,7 @@ function updateBoss() {
                 brick.x = cx - newSize / 2;
                 brick.y = cy - newSize / 2;
             }
-            brick.bossShootTimer = (brick.bossShootTimer || 0) + 1;
+            brick.bossShootTimer = (brick.bossShootTimer || 0) + dt;
             const shootInt = (brick.hp === 1 ? cfg.shootInterval / 2 : cfg.shootInterval);
             const bulletDy = (brick.hp === 1 ? 12 : 6);
             if (cfg.shootInterval > 0 && brick.bossShootTimer >= shootInt) {
@@ -652,15 +707,15 @@ function updateBoss() {
             } else if (cfg.movePattern === 'free') {
                 brick.bossVx = brick.bossVx || 1.5;
                 brick.bossVy = brick.bossVy || 1;
-                brick.x += brick.bossVx * speedMult;
-                brick.y += brick.bossVy * speedMult;
+                brick.x += brick.bossVx * speedMult * dt;
+                brick.y += brick.bossVy * speedMult * dt;
                 if (brick.x <= 0 || brick.x + brick.width >= canvas.width) brick.bossVx = -brick.bossVx;
                 if (brick.y <= BRICK_OFFSET_TOP || brick.y + brick.height >= canvas.height - 100) brick.bossVy = -brick.bossVy;
             } else if (cfg.movePattern === 'curve') {
                 const baseVel = 1.2;
                 brick.bossVx = brick.bossVx ?? (baseVel * (Math.random() > 0.5 ? 1 : -1));
                 brick.bossVy = brick.bossVy ?? (baseVel * (Math.random() > 0.5 ? 1 : -1));
-                brick.bossCurveTimer = (brick.bossCurveTimer || 0) + 1;
+                brick.bossCurveTimer = (brick.bossCurveTimer || 0) + dt;
                 if (brick.bossCurveTimer >= 8) {
                     brick.bossCurveTimer = 0;
                     brick.bossVx += (Math.random() - 0.5) * 1.2;
@@ -717,7 +772,7 @@ function updateBoss() {
                     if (dist > DODGE_RANGE || dist < 5) continue;
                     const dot = (dx * ball.dx + dy * ball.dy) / (dist + 0.001);
                     if (dot > 0.3) {
-                        const dodge = ball.x < bcx ? DODGE_SPEED : -DODGE_SPEED;
+                        const dodge = (ball.x < bcx ? DODGE_SPEED : -DODGE_SPEED) * dt;
                         brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x + dodge));
                         break;
                     }
@@ -727,10 +782,10 @@ function updateBoss() {
     });
 }
 
-function updateBullets() {
+function updateBullets(dt = 1) {
     bullets = bullets.filter(b => {
         const oldY = b.y;
-        b.y += b.dy;
+        b.y += b.dy * dt;
         if (b.y < 0) return false;
         const yMin = Math.min(oldY, b.y);
         const yMax = Math.max(oldY + b.height, b.y + b.height);
@@ -749,7 +804,7 @@ function updateBullets() {
         return !hit && b.y > 0;
     });
     bossBullets = bossBullets.filter(b => {
-        b.y += b.dy;
+        b.y += b.dy * dt;
         if (b.y > canvas.height) return false;
         if (b.y + b.height > paddle.y && b.y < paddle.y + paddle.height &&
             b.x + b.width > paddle.x && b.x < paddle.x + paddle.width) {
@@ -780,26 +835,25 @@ function resetBall() {
     }];
 }
 
-function updateBall() {
+function updateBall(dt = 1) {
     bricksHitThisFrame.clear();
-    updateFallingItems();
-    updateBullets();
-    updateBoss();  // 공 미발사 시에도 보스 계속 움직임
+    updateFallingItems(dt);
+    updateBullets(dt);
+    updateBoss(dt);
 
     if (!ballLaunched && balls.length > 0) {
         balls[0].x = paddle.x + paddle.width / 2;
         balls[0].y = paddle.y - BALL_RADIUS - 5;
-        ballStickTimer++;
+        ballStickTimer += dt;
         if (ballStickTimer >= 60 * BALL_AUTO_LAUNCH_SEC) {
             launchBall();
         }
         return;
     }
-
     for (let bi = balls.length - 1; bi >= 0; bi--) {
         const ball = balls[bi];
-        ball.x += ball.dx;
-        ball.y += ball.dy;
+        ball.x += ball.dx * dt;
+        ball.y += ball.dy * dt;
 
         if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
             ball.dx = -ball.dx;
@@ -934,7 +988,6 @@ function showStageStartAndResume() {
         if (resetBtn) { resetBtn.style.display = 'none'; }
         overlayEl.classList.remove('hidden');
     }
-    startBGM(currentStage);
     setTimeout(() => {
         if (overlayEl) overlayEl.classList.add('hidden');
         gameRunning = true;
@@ -943,15 +996,23 @@ function showStageStartAndResume() {
     }, 2000);
 }
 
+function onImageLoad() {
+    if (gameRunning && ctx) draw();
+}
+
 const bagImage = new Image();
 bagImage.onerror = () => { bagImage.src = PATH.image + '자루.png'; };
+bagImage.onload = onImageLoad;
 bagImage.src = PATH.image + '자루 TP.png';
 
 const bombImage = new Image();
+bombImage.onload = onImageLoad;
 bombImage.src = PATH.image + '폭탄.png';
 
 const bossImage = new Image();
-bossImage.src = PATH.image + 'boss.png';
+bossImage.onload = onImageLoad;
+bossImage.onerror = () => { bossImage.src = PATH.image + 'boss.png'; };
+bossImage.src = PATH.image + 'Boss.png';
 
 function drawPaddle() {
     const gradient = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.width, 0);
@@ -991,15 +1052,17 @@ function drawBall() {
 
 function drawFallingItems() {
     fallingItems.forEach(item => {
-        const w = item.width || 48;
-        const h = item.height || 56;
+        const w = Math.floor(item.width || 48);
+        const h = Math.floor(item.height || 56);
+        const x = Math.floor(item.x);
+        const y = Math.floor(item.y);
         const isNerf = NERF_TYPES.includes(item.type);
         if (isNerf && bombImage.complete && bombImage.naturalWidth > 0) {
-            ctx.drawImage(bombImage, item.x, item.y, w, h);
+            ctx.drawImage(bombImage, x, y, w, h);
         } else if (bagImage.complete && bagImage.naturalWidth > 0) {
-            ctx.drawImage(bagImage, item.x, item.y, w, h);
+            ctx.drawImage(bagImage, x, y, w, h);
         } else {
-            drawBagShape(item.x, item.y, w, h);
+            drawBagShape(x, y, w, h);
         }
     });
 }
@@ -1089,7 +1152,7 @@ function drawBricks() {
                     ctx.closePath();
                     ctx.clip();
                     if (bossImage.complete && bossImage.naturalWidth > 0) {
-                        ctx.drawImage(bossImage, brick.x, brick.y, brick.width, brick.height);
+                        ctx.drawImage(bossImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     } else {
                         ctx.fillStyle = `hsl(${(Date.now() / 50) % 360}, 80%, 55%)`;
                         ctx.beginPath();
@@ -1113,14 +1176,14 @@ function drawBricks() {
                 }
                 if (brick.isItem && !brick.isNerf) {
                     if (bagImage.complete && bagImage.naturalWidth > 0) {
-                        ctx.drawImage(bagImage, brick.x, brick.y, brick.width, brick.height);
+                        ctx.drawImage(bagImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     } else {
                         drawBagShape(brick.x, brick.y, brick.width, brick.height);
                     }
                 }
                 if (brick.isNerf) {
                     if (bombImage.complete && bombImage.naturalWidth > 0) {
-                        ctx.drawImage(bombImage, brick.x, brick.y, brick.width, brick.height);
+                        ctx.drawImage(bombImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     }
                 }
                 if (!brick.isBoss && hp > 1 && !brick.isItem) {
@@ -1167,6 +1230,8 @@ function drawBossHPBar() {
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
     ctx.lineWidth = 1;
@@ -1192,16 +1257,20 @@ function draw() {
     drawBossHPBar();
 }
 
-function gameLoop() {
+function gameLoop(now = performance.now()) {
     if (!gameRunning) return;
     if (gamePaused) {
+        lastFrameTime = now;
         animationId = requestAnimationFrame(gameLoop);
         return;
     }
+    const deltaTime = Math.min(now - lastFrameTime, 100);
+    lastFrameTime = now;
+    const dt = deltaTime / FRAME_MS;
 
     updatePaddle();
-    updateActiveItems();
-    updateBall();
+    updateActiveItems(dt);
+    updateBall(dt);
     draw();
 
     animationId = requestAnimationFrame(gameLoop);
@@ -1216,9 +1285,10 @@ function applyOptions() {
     else { options.brickRows = 6; options.brickCols = 10; }
     const screenSizeEl = document.getElementById('screenSize');
     const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
-    if (screenSize === 'portrait' || isMobilePortrait()) {
-        applyMobilePortraitDimensions();
-    } else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
+    if (isMobile() && isLandscape()) {
+        applyMobileLandscapeDimensions();
+    } else if (screenSize === 'mobile') { options.canvasWidth = 640; options.canvasHeight = 360; }
+    else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
     else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
     else { options.canvasWidth = 800; options.canvasHeight = 600; }
     paddle.speed = options.paddleSpeed;
@@ -1302,7 +1372,17 @@ let bgmAudio = null;
 // 스테이지별 배경음악 (6스테이지는 Stage5 사용)
 const BGM_FILES = [1, 2, 3, 4, 5, 6].map(n => `${PATH.bgm}Stage${n}.mp3`);
 
+function unlockAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
 function startBGM(stage) {
+    unlockAudio();
     stopBGM();
     const idx = Math.min(Math.max(1, stage), BGM_FILES.length) - 1;
     const src = BGM_FILES[idx];
@@ -1503,7 +1583,7 @@ function openOptions() {
     document.getElementById('blockCount').value =
         options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
     const ssEl = document.getElementById('screenSize');
-    if (ssEl) ssEl.value = options.canvasWidth <= 420 ? 'portrait' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
+    if (ssEl) ssEl.value = (isMobile() && options.canvasWidth <= 960) ? 'mobile' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
     document.getElementById('optionsPanel').classList.remove('hidden');
 }
 
@@ -1519,9 +1599,10 @@ document.getElementById('optionsCloseBtn').addEventListener('click', () => {
     else { options.brickRows = 6; options.brickCols = 10; }
     const screenSizeEl = document.getElementById('screenSize');
     const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
-    if (screenSize === 'portrait' || isMobilePortrait()) {
-        applyMobilePortraitDimensions();
-    } else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
+    if (isMobile() && isLandscape()) {
+        applyMobileLandscapeDimensions();
+    } else if (screenSize === 'mobile') { options.canvasWidth = 640; options.canvasHeight = 360; }
+    else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
     else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
     else { options.canvasWidth = 800; options.canvasHeight = 600; }
     paddle.speed = options.paddleSpeed;
@@ -1892,8 +1973,31 @@ if (!STAGE6_ONLY) {
 const resetRankingBtn = document.getElementById('resetRankingBtn');
 if (resetRankingBtn) resetRankingBtn.addEventListener('click', handleResetRanking);
 
+window.addEventListener('orientationchange', () => {
+    updateRotateOverlay();
+    if (isMobile() && isLandscape()) {
+        applyMobileLandscapeDimensions();
+        applyOptions();
+        if (gameRunning) {
+            canvas.width = options.canvasWidth;
+            canvas.height = options.canvasHeight;
+            paddle.y = canvas.height - 40;
+            paddle.x = Math.min(paddle.x, canvas.width - paddle.width);
+        } else {
+            canvas.width = options.canvasWidth;
+            canvas.height = options.canvasHeight;
+            paddle.y = canvas.height - 40;
+            paddle.x = (canvas.width - paddle.width) / 2;
+            bricks = createBricks();
+            draw();
+        }
+    }
+});
+
 function init() {
-    if (isMobilePortrait()) applyMobilePortraitDimensions();
+    tryLockLandscape();
+    updateRotateOverlay();
+    if (isMobile() && isLandscape()) applyMobileLandscapeDimensions();
     applyOptions();
     if (STAGE6_ONLY || BOSS6_TEST) {
         currentStage = 6;

@@ -2,7 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="screen-orientation" content="landscape">
     <title>벽돌깨기 게임</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Noto+Sans+KR:wght@400;700&display=swap');
@@ -33,6 +34,7 @@
                 0 0 60px rgba(138, 43, 226, 0.3),
                 inset 0 0 60px rgba(0, 0, 0, 0.3);
             border: 2px solid rgba(138, 43, 226, 0.5);
+            overflow: hidden;
         }
         
         h1 {
@@ -61,6 +63,7 @@
             background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
             border-radius: 8px;
             cursor: none;
+            touch-action: none;
         }
         
         .controls {
@@ -336,20 +339,21 @@
             to { transform: scale(1.1); }
         }
         
-        /* 모바일 세로 모드 */
-        @media (max-width: 500px), (max-height: 700px) and (orientation: portrait) {
-            body { padding: 8px; overflow-x: hidden; }
+        /* 모바일 가로 모드 */
+        @media (max-height: 500px), (orientation: landscape) and (max-width: 900px) {
+            body { padding: 8px; overflow: hidden; }
             .game-container { padding: 10px; max-width: 100%; }
-            h1 { font-size: 1.3rem; margin-bottom: 8px; }
-            .info-bar { font-size: 0.85rem; margin-bottom: 6px; }
-            .controls { font-size: 0.75rem; margin-top: 8px; }
-            canvas { max-width: 100%; height: auto; touch-action: none; }
-            .overlay h2 { font-size: 1.5rem; }
-            .overlay p { font-size: 0.95rem; margin-bottom: 15px; }
-            .account-input { width: 90%; max-width: 280px; }
-            .btn { padding: 12px 24px; font-size: 1rem; }
-            .btn-small { padding: 6px 14px; font-size: 0.85rem; }
+            h1 { font-size: 1.2rem; margin-bottom: 6px; }
+            .info-bar { font-size: 0.8rem; margin-bottom: 6px; }
+            .controls { font-size: 0.7rem; margin-top: 6px; }
+            canvas { max-width: 100%; max-height: 70vh; touch-action: none; }
+            .overlay h2 { font-size: 1.4rem; }
+            .overlay p { font-size: 0.9rem; margin-bottom: 12px; }
+            .account-input { width: 90%; max-width: 260px; }
+            .btn { padding: 10px 20px; font-size: 0.95rem; }
+            .btn-small { padding: 6px 12px; font-size: 0.8rem; }
         }
+        #rotateOverlay { display: none; }
     </style>
 </head>
 <body>
@@ -365,6 +369,12 @@
         </div>
         <canvas id="gameCanvas" width="800" height="600"></canvas>
         <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
+        
+        <div id="rotateOverlay" class="overlay" style="z-index:100; background: rgba(0,0,0,0.95); display:none;">
+            <h2>📱 가로 모드로 전환해 주세요</h2>
+            <p>이 게임은 가로 모드에서만 플레이할 수 있습니다.</p>
+            <p style="font-size:3rem; margin:20px 0;">📲</p>
+        </div>
         
         <div id="loginOverlay" class="overlay">
             <h2>🎮 벽돌깨기</h2>
@@ -521,7 +531,7 @@
             <div class="option-row">
                 <label>화면 크기</label>
                 <select id="screenSize">
-                    <option value="portrait">세로 (모바일)</option>
+                    <option value="mobile">모바일 가로</option>
                     <option value="small">작음 (640×480)</option>
                     <option value="medium" selected>보통 (800×600)</option>
                     <option value="large">큼 (960×720)</option>
