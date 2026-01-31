@@ -334,6 +334,26 @@
             margin: 5px 0;
         }
         
+        .ranking-box .ranking-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            color: #e0e0ff;
+        }
+        .ranking-box .ranking-table th,
+        .ranking-box .ranking-table td {
+            padding: 6px 10px;
+            text-align: left;
+            border-bottom: 1px solid rgba(184, 184, 255, 0.3);
+        }
+        .ranking-box .ranking-table th {
+            color: #b8b8ff;
+            font-weight: 700;
+        }
+        .ranking-box .ranking-table tr:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
         .first-place {
             font-size: 1.5rem;
             color: #ffd700;
@@ -470,10 +490,10 @@
                 <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
             </div>
             <div class="overlay-buttons" style="margin-top:15px;">
-                <button type="button" class="btn" id="loginBtn" onclick="typeof doLogin==='function'&&doLogin()">로그인</button>
+                <button type="button" class="btn" id="loginBtn">로그인</button>
                 <button type="button" class="btn btn-small btn-outline" id="createAccountBtn" onclick="typeof showCreateAccountModal==='function'&&showCreateAccountModal()">계정 새로 만들기</button>
-                <button type="button" class="btn btn-small btn-outline" id="deleteAccountBtn" onclick="typeof handleDeleteAccount==='function'&&handleDeleteAccount()">계정 삭제</button>
-                <button type="button" class="btn btn-small btn-outline" id="findPasswordBtn" onclick="typeof showFindPasswordModal==='function'&&showFindPasswordModal()">비밀번호 찾기</button>
+                <button type="button" class="btn btn-small btn-outline" id="deleteAccountBtn" onclick="handleDeleteAccount()">계정 삭제</button>
+                <button type="button" class="btn btn-small btn-outline" id="findPasswordBtn" onclick="showFindPasswordModal()">비밀번호 찾기</button>
             </div>
         </div>
         
@@ -494,7 +514,6 @@
             <div class="overlay-buttons">
                 <button class="btn" id="continueBtn">이어서 하기</button>
                 <button class="btn" id="newGameBtn">새로 시작</button>
-                <button class="btn btn-small btn-outline" id="resetRankingBtn">점수 초기화</button>
             </div>
         </div>
         
@@ -597,7 +616,7 @@
                     <option value="large">큼 (960×720)</option>
                 </select>
             </div>
-            <button class="btn" id="optionsCloseBtn" style="margin-top:20px;">닫기</button>
+            <button type="button" class="btn" id="optionsCloseBtn" style="margin-top:20px;" onclick="typeof closeOptions==='function'&&closeOptions()">닫기</button>
         </div>
     </div>
 

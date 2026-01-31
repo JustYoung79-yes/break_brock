@@ -1362,9 +1362,9 @@ function startGame(isNewGame = true) {
     }
     updateScoreUI(score);
     updateLivesUI(lives);
-    document.getElementById('startOverlay').classList.add('hidden');
-    document.getElementById('gameOverOverlay').classList.add('hidden');
-    document.getElementById('winOverlay').classList.add('hidden');
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('gameOverOverlay')?.classList.add('hidden');
+    document.getElementById('winOverlay')?.classList.add('hidden');
     updateOptionsButtonVisibility();
     paddle.x = (canvas.width - paddle.width) / 2;
     mouseX = canvas.width / 2;
@@ -1388,14 +1388,14 @@ function continueGame() {
     if (savedGameState) {
         savedGameState.lives = 3;
         savedGameState.score = 0;
-        document.getElementById('gameOverOverlay').classList.add('hidden');
+        document.getElementById('gameOverOverlay')?.classList.add('hidden');
         startGame(false);
     }
 }
 
 function restartGame() {
-    document.getElementById('gameOverOverlay').classList.add('hidden');
-    document.getElementById('winOverlay').classList.add('hidden');
+    document.getElementById('gameOverOverlay')?.classList.add('hidden');
+    document.getElementById('winOverlay')?.classList.add('hidden');
     startGame(true);
 }
 
@@ -1433,15 +1433,21 @@ function stopBGM() {
     }
 }
 
-const RANKING_KEY_PREFIX = 'brickBreakerRanking_';
+const RANKING_KEY = 'brickBreakerRanking';
 const ACCOUNTS_KEY = 'brickBreakerAccounts';
 const MAX_RANKING = 10;
 const RANKING_DISPLAY_COUNT = 10;
 
 function getAccounts() {
     try {
-        return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '{}');
-    } catch { return {}; }
+        const raw = localStorage.getItem(ACCOUNTS_KEY) || '{}';
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        return {};
+    } catch (e) {
+        console.warn('getAccounts 오류:', e);
+        return {};
+    }
 }
 
 function saveAccount(name, data) {
@@ -1454,7 +1460,6 @@ function deleteAccountData(name) {
     const accounts = getAccounts();
     delete accounts[name];
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-    localStorage.removeItem(RANKING_KEY_PREFIX + name.replace(/[^a-zA-Z0-9가-힣_]/g, '_'));
 }
 
 function getAccount(name) {
@@ -1503,35 +1508,50 @@ function saveOptionsToAccount() {
     });
 }
 
-function getRankingKey() {
-    return RANKING_KEY_PREFIX + (currentAccount || 'guest').replace(/[^a-zA-Z0-9가-힣_]/g, '_');
-}
-
 function getRanking() {
     try {
-        return JSON.parse(localStorage.getItem(getRankingKey()) || '[]');
+        return JSON.parse(localStorage.getItem(RANKING_KEY) || '[]');
     } catch { return []; }
 }
 
 function saveToRanking(score) {
     const ranking = getRanking();
-    ranking.push({ score, date: new Date().toISOString(), account: currentAccount || '게스트' });
+    ranking.push({
+        account: currentAccount || '게스트',
+        score,
+        stage: currentStage || 1,
+        date: new Date().toISOString()
+    });
     ranking.sort((a, b) => b.score - a.score);
-    localStorage.setItem(getRankingKey(), JSON.stringify(ranking.slice(0, MAX_RANKING)));
-    const rank = ranking.findIndex(r => r.score === score) + 1;
+    localStorage.setItem(RANKING_KEY, JSON.stringify(ranking.slice(0, MAX_RANKING)));
+    const rank = ranking.findIndex(r => r.score === score && r.account === (currentAccount || '게스트')) + 1;
     return rank > 0 ? rank : 1;
 }
 
 function clearRanking() {
-    localStorage.setItem(getRankingKey(), '[]');
+    localStorage.setItem(RANKING_KEY, '[]');
+}
+
+function formatRankingDate(isoStr) {
+    if (!isoStr) return '-';
+    try {
+        const d = new Date(isoStr);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    } catch { return '-'; }
 }
 
 function renderRanking(elementId) {
     const el = document.getElementById(elementId);
     if (!el) return;
     const ranking = getRanking();
-    el.innerHTML = ranking.length ? '<h3>🏆 점수 순위 (' + (currentAccount || '게스트') + ')</h3><ol>' +
-        ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) => `<li>${r.score}점</li>`).join('') + '</ol>' : '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
+    if (!ranking.length) {
+        el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
+        return;
+    }
+    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
+        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
+    ).join('');
+    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
 function resetRankingUI() {
@@ -1563,7 +1583,7 @@ function gameOver() {
         }
     }
     renderRanking('rankingDisplay');
-    document.getElementById('gameOverOverlay').classList.remove('hidden');
+    document.getElementById('gameOverOverlay')?.classList.remove('hidden');
 }
 
 function winGame() {
@@ -1585,7 +1605,7 @@ function winGame() {
         }
     }
     playVictoryMusic();
-    document.getElementById('winOverlay').classList.remove('hidden');
+    document.getElementById('winOverlay')?.classList.remove('hidden');
 }
 
 function playVictoryMusic() {
@@ -1609,18 +1629,23 @@ function playVictoryMusic() {
 
 function openOptions() {
     if (gameRunning) gamePaused = true;
-    document.getElementById('paddleSpeed').value = options.paddleSpeed;
-    document.getElementById('ballSpeed').value = options.ballSpeed;
-    document.getElementById('paddleSpeedVal').textContent = options.paddleSpeed;
-    document.getElementById('ballSpeedVal').textContent = options.ballSpeed;
-    document.getElementById('blockCount').value =
-        options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
+    const paddleEl = document.getElementById('paddleSpeed');
+    const ballEl = document.getElementById('ballSpeed');
+    const paddleVal = document.getElementById('paddleSpeedVal');
+    const ballVal = document.getElementById('ballSpeedVal');
+    const blockEl = document.getElementById('blockCount');
+    if (paddleEl) paddleEl.value = options.paddleSpeed;
+    if (ballEl) ballEl.value = options.ballSpeed;
+    if (paddleVal) paddleVal.textContent = options.paddleSpeed;
+    if (ballVal) ballVal.textContent = options.ballSpeed;
+    if (blockEl) blockEl.value = options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
     const ssEl = document.getElementById('screenSize');
     if (ssEl) ssEl.value = (isMobile() && options.canvasWidth <= 960) ? 'mobile' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
-    document.getElementById('optionsPanel').classList.remove('hidden');
+    document.getElementById('optionsPanel')?.classList.remove('hidden');
 }
 
-document.getElementById('optionsBtn').addEventListener('click', openOptions);
+const optionsBtn = document.getElementById('optionsBtn');
+if (optionsBtn) optionsBtn.addEventListener('click', openOptions);
 const optionsBtnSide = document.getElementById('optionsBtnSide');
 if (optionsBtnSide) optionsBtnSide.addEventListener('click', openOptions);
 
@@ -1633,6 +1658,47 @@ function updateFullscreenButton() {
         btn.title = isFullscreen() ? '전체화면 해제' : '전체화면';
     });
 }
+
+function isLoginScreenVisible() {
+    const el = document.getElementById('loginOverlay');
+    return el && !el.classList.contains('hidden');
+}
+
+function updateExitButton() {
+    if (STAGE6_ONLY) return;
+    const show = currentAccount && !isLoginScreenVisible();
+    document.querySelectorAll('#exitBtn, #exitBtnSide').forEach(btn => {
+        if (btn) btn.style.display = show ? '' : 'none';
+    });
+}
+
+function doExit() {
+    if (STAGE6_ONLY) return;
+    try {
+        if (isFullscreen()) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            if (exit) exit.call(document);
+        }
+        if (!confirm('로그인 화면으로 돌아가시겠습니까?')) return;
+        gameRunning = false;
+        gamePaused = false;
+        currentAccount = '';
+        document.getElementById('gameOverOverlay')?.classList.add('hidden');
+        document.getElementById('winOverlay')?.classList.add('hidden');
+        document.getElementById('startOverlay')?.classList.add('hidden');
+        const loginEl = document.getElementById('loginOverlay');
+        if (loginEl) loginEl.classList.remove('hidden');
+        document.getElementById('passwordInput').value = '';
+        refreshAccountList();
+        updateOptionsButtonVisibility();
+        updateExitButton();
+        updateRotateOverlay();
+        draw();
+    } catch (e) {
+        console.warn('doExit 오류:', e);
+    }
+}
+
 document.querySelectorAll('#fullscreenBtn, #fullscreenBtnSide').forEach(b => { if (b) b.addEventListener('click', toggleFullscreen); });
 document.querySelectorAll('#exitBtn, #exitBtnSide').forEach(b => { if (b) b.addEventListener('click', doExit); });
 
@@ -1659,68 +1725,95 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 document.addEventListener('mozfullscreenchange', onFullscreenChange);
 document.addEventListener('MSFullscreenChange', onFullscreenChange);
 
-document.getElementById('optionsCloseBtn').addEventListener('click', () => {
-    if (gameRunning) gamePaused = false;
-    options.paddleSpeed = parseInt(document.getElementById('paddleSpeed').value) || 12;
-    options.ballSpeed = parseInt(document.getElementById('ballSpeed').value) || 3;
-    const blockCount = document.getElementById('blockCount').value;
-    if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
-    else if (blockCount === 'large') { options.brickRows = 8; options.brickCols = 12; }
-    else { options.brickRows = 6; options.brickCols = 10; }
-    const screenSizeEl = document.getElementById('screenSize');
-    const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
-    if (isMobile() && isLandscape()) {
-        applyMobileLandscapeDimensions();
-    } else if (screenSize === 'mobile') { options.canvasWidth = 640; options.canvasHeight = 360; }
-    else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
-    else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
-    else { options.canvasWidth = 800; options.canvasHeight = 600; }
-    paddle.speed = options.paddleSpeed;
-    if (gameRunning) startBGM(currentStage);
-    if (!gameRunning) {
-        canvas.width = options.canvasWidth;
-        canvas.height = options.canvasHeight;
-        paddle.baseWidth = PADDLE_WIDTH * (options.canvasWidth / 800);
-        paddle.width = paddle.baseWidth;
-        paddle.y = canvas.height - 40;
-        paddle.x = (canvas.width - paddle.width) / 2;
-        bricks = createBricks();
-        draw();
+function closeOptions() {
+    try {
+        if (gameRunning) gamePaused = false;
+        const paddleEl = document.getElementById('paddleSpeed');
+        const ballEl = document.getElementById('ballSpeed');
+        options.paddleSpeed = parseInt(paddleEl ? paddleEl.value : 12) || 12;
+        options.ballSpeed = parseInt(ballEl ? ballEl.value : 3) || 3;
+        const blockEl = document.getElementById('blockCount');
+        const blockCount = blockEl ? blockEl.value : 'medium';
+        if (blockCount === 'small') { options.brickRows = 5; options.brickCols = 8; }
+        else if (blockCount === 'large') { options.brickRows = 8; options.brickCols = 12; }
+        else { options.brickRows = 6; options.brickCols = 10; }
+        const screenSizeEl = document.getElementById('screenSize');
+        const screenSize = screenSizeEl ? screenSizeEl.value : 'medium';
+        if (isMobile() && isLandscape()) {
+            applyMobileLandscapeDimensions();
+        } else if (screenSize === 'mobile') { options.canvasWidth = 640; options.canvasHeight = 360; }
+        else if (screenSize === 'small') { options.canvasWidth = 640; options.canvasHeight = 480; }
+        else if (screenSize === 'large') { options.canvasWidth = 960; options.canvasHeight = 720; }
+        else { options.canvasWidth = 800; options.canvasHeight = 600; }
+        paddle.speed = options.paddleSpeed;
+        if (gameRunning) startBGM(currentStage);
+        if (!gameRunning) {
+            canvas.width = options.canvasWidth;
+            canvas.height = options.canvasHeight;
+            paddle.baseWidth = PADDLE_WIDTH * (options.canvasWidth / 800);
+            paddle.width = paddle.baseWidth;
+            paddle.y = canvas.height - 40;
+            paddle.x = (canvas.width - paddle.width) / 2;
+            bricks = createBricks();
+            draw();
+        }
+        saveOptionsToAccount();
+        const panel = document.getElementById('optionsPanel');
+        if (panel) panel.classList.add('hidden');
+    } catch (e) {
+        console.error('옵션 닫기 오류:', e);
+        const panel = document.getElementById('optionsPanel');
+        if (panel) panel.classList.add('hidden');
     }
-    saveOptionsToAccount();
-    document.getElementById('optionsPanel').classList.add('hidden');
+}
+const optionsCloseBtn = document.getElementById('optionsCloseBtn');
+if (optionsCloseBtn) optionsCloseBtn.addEventListener('click', closeOptions);
+
+const paddleSpeedEl = document.getElementById('paddleSpeed');
+if (paddleSpeedEl) paddleSpeedEl.addEventListener('input', (e) => {
+    const v = document.getElementById('paddleSpeedVal');
+    if (v) v.textContent = e.target.value;
+});
+const ballSpeedEl = document.getElementById('ballSpeed');
+if (ballSpeedEl) ballSpeedEl.addEventListener('input', (e) => {
+    const v = document.getElementById('ballSpeedVal');
+    if (v) v.textContent = e.target.value;
 });
 
-document.getElementById('paddleSpeed').addEventListener('input', (e) => {
-    document.getElementById('paddleSpeedVal').textContent = e.target.value;
-});
-document.getElementById('ballSpeed').addEventListener('input', (e) => {
-    document.getElementById('ballSpeedVal').textContent = e.target.value;
-});
-
-document.getElementById('startBtn').addEventListener('click', () => startGame(true));
+const startBtn = document.getElementById('startBtn');
+if (startBtn) startBtn.addEventListener('click', () => startGame(true));
 const continueBtn = document.getElementById('continueBtn');
 if (continueBtn) continueBtn.addEventListener('click', continueGame);
-document.getElementById('newGameBtn').addEventListener('click', restartGame);
-document.getElementById('playAgainBtn').addEventListener('click', restartGame);
+const newGameBtn = document.getElementById('newGameBtn');
+if (newGameBtn) newGameBtn.addEventListener('click', restartGame);
+const playAgainBtn = document.getElementById('playAgainBtn');
+if (playAgainBtn) playAgainBtn.addEventListener('click', restartGame);
 
-function refreshAccountList() {
+function refreshAccountList(selectAccountName) {
     if (STAGE6_ONLY) return;
-    const select = document.getElementById('accountSelect');
-    const findSelect = document.getElementById('findPasswordAccountSelect');
-    const hintEl = document.getElementById('accountListHint');
-    const accounts = Object.keys(getAccounts()).sort();
-    const optionsHtml = '<option value="">-- 계정 선택 --</option>' +
-        accounts.map(a => `<option value="${a.replace(/"/g, '&quot;')}">${a.replace(/</g, '&lt;')}</option>`).join('');
-    if (select) select.innerHTML = optionsHtml;
-    if (findSelect) findSelect.innerHTML = optionsHtml;
-    if (hintEl) {
-        if (accounts.length === 0) {
-            hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요. (같은 주소/URL에서 만든 계정만 표시됩니다)';
-            hintEl.style.display = 'block';
-        } else {
-            hintEl.style.display = 'none';
+    try {
+        const select = document.getElementById('accountSelect');
+        const findSelect = document.getElementById('findPasswordAccountSelect');
+        const hintEl = document.getElementById('accountListHint');
+        const accountsObj = getAccounts();
+        const accounts = Object.keys(accountsObj).filter(k => accountsObj[k] && typeof accountsObj[k] === 'object').sort();
+        const optionsHtml = '<option value="">-- 계정 선택 --</option>' +
+            accounts.map(a => `<option value="${String(a).replace(/"/g, '&quot;').replace(/&/g, '&amp;')}">${String(a).replace(/</g, '&lt;')}</option>`).join('');
+        if (select) {
+            select.innerHTML = optionsHtml;
+            if (selectAccountName && accounts.indexOf(selectAccountName) >= 0) select.value = selectAccountName;
         }
+        if (findSelect) findSelect.innerHTML = optionsHtml;
+        if (hintEl) {
+            if (accounts.length === 0) {
+                hintEl.textContent = '저장된 계정이 없습니다. "계정 새로 만들기"를 눌러 만드세요. (같은 주소/URL에서 만든 계정만 표시됩니다)';
+                hintEl.style.display = 'block';
+            } else {
+                hintEl.style.display = 'none';
+            }
+        }
+    } catch (e) {
+        console.error('refreshAccountList 오류:', e);
     }
 }
 
@@ -1738,11 +1831,12 @@ function doLogin() {
     }
     currentAccount = name;
     loadOptionsForAccount(name);
-    document.getElementById('loginOverlay').classList.add('hidden');
-    document.getElementById('passwordInput').value = '';
+    document.getElementById('loginOverlay')?.classList.add('hidden');
+    const pwdInput = document.getElementById('passwordInput');
+    if (pwdInput) pwdInput.value = '';
     const accDisplay = document.getElementById('currentAccountDisplay');
     if (accDisplay) accDisplay.textContent = '(' + name + ')';
-    document.getElementById('startOverlay').classList.remove('hidden');
+    document.getElementById('startOverlay')?.classList.remove('hidden');
     updateRotateOverlay();
     updateExitButton();
     if (isMobile()) {
@@ -1758,27 +1852,26 @@ function doLogin() {
 let passwordPromptCallback = null;
 
 function showPasswordPrompt(title, desc, onConfirm) {
-    document.getElementById('passwordPromptTitle').textContent = title;
-    document.getElementById('passwordPromptDesc').textContent = desc;
-    document.getElementById('passwordPromptInput').value = '';
-    passwordPromptCallback = onConfirm;
-    document.getElementById('passwordPromptModal').classList.remove('hidden');
+    try {
+        const titleEl = document.getElementById('passwordPromptTitle');
+        const descEl = document.getElementById('passwordPromptDesc');
+        const inputEl = document.getElementById('passwordPromptInput');
+        const modal = document.getElementById('passwordPromptModal');
+        if (titleEl) titleEl.textContent = title;
+        if (descEl) descEl.textContent = desc;
+        if (inputEl) inputEl.value = '';
+        passwordPromptCallback = onConfirm;
+        if (modal) modal.classList.remove('hidden');
+    } catch (e) {
+        console.error('비밀번호 입력 모달 오류:', e);
+        alert('창을 열 수 없습니다.');
+    }
 }
 
 function hidePasswordPrompt() {
-    document.getElementById('passwordPromptModal').classList.add('hidden');
+    const el = document.getElementById('passwordPromptModal');
+    if (el) el.classList.add('hidden');
     passwordPromptCallback = null;
-}
-
-function handleResetRanking() {
-    if (!currentAccount) {
-        alert('로그인된 계정이 없습니다.');
-        return;
-    }
-    if (!confirm(currentAccount + ' 계정의 점수를 초기화하시겠습니까?')) return;
-    clearRanking();
-    resetRankingUI();
-    alert('점수가 초기화되었습니다.');
 }
 
 function handleDeleteAccount() {
@@ -1863,7 +1956,6 @@ function checkPasswordMatch() {
 function hideCreateAccountModal() {
     const modal = document.getElementById('createAccountModal');
     if (modal) { modal.classList.add('hidden'); modal.style.display = ''; }
-    refreshAccountList();
 }
 
 function updateOptionsButtonVisibility() {
@@ -1899,7 +1991,7 @@ function showEditAccountModal() {
 }
 
 function hideEditAccountModal() {
-    document.getElementById('editAccountModal').classList.add('hidden');
+    document.getElementById('editAccountModal')?.classList.add('hidden');
     updateOptionsButtonVisibility();
 }
 
@@ -1960,8 +2052,9 @@ function handleCreateAccount() {
         if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
         if (getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
         saveAccount(name, { password: pwd, question, hint, answer });
-        refreshAccountList();
+        refreshAccountList(name);
         hideCreateAccountModal();
+        document.getElementById('passwordInput').value = '';
         alert('계정이 생성되었습니다.');
     } catch (e) {
         console.error('계정 생성 오류:', e);
@@ -1970,13 +2063,20 @@ function handleCreateAccount() {
 }
 
 function showFindPasswordModal() {
-    refreshAccountList();
-    document.getElementById('findPasswordQuestion').style.display = 'none';
-    document.getElementById('findPasswordHint').style.display = 'none';
-    document.getElementById('findPasswordAnswer').style.display = 'none';
-    document.getElementById('findPasswordResult').style.display = 'none';
-    document.getElementById('findPasswordAnswer').value = '';
-    document.getElementById('findPasswordModal').classList.remove('hidden');
+    try {
+        refreshAccountList();
+        ['findPasswordQuestion', 'findPasswordHint', 'findPasswordAnswer', 'findPasswordResult'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'none'; if (id === 'findPasswordAnswer') el.value = ''; }
+        });
+        const ansEl = document.getElementById('findPasswordAnswer');
+        if (ansEl) ansEl.value = '';
+        const modal = document.getElementById('findPasswordModal');
+        if (modal) modal.classList.remove('hidden');
+    } catch (e) {
+        console.error('비밀번호 찾기 모달 오류:', e);
+        alert('비밀번호 찾기 창을 열 수 없습니다.');
+    }
 }
 
 function onFindPasswordAccountSelect() {
@@ -2033,7 +2133,6 @@ function setupLoginHandlers() {
     document.addEventListener('click', (e) => {
         if (e.target.closest && e.target.closest('#createAccountBtn')) { e.preventDefault(); showCreateAccountModal(); }
         if (e.target.closest && e.target.closest('#createAccountSubmitBtn')) { e.preventDefault(); handleCreateAccount(); }
-        if (e.target.closest && e.target.closest('#loginBtn')) { e.preventDefault(); doLogin(); }
         if (e.target.closest && e.target.closest('#deleteAccountBtn')) { e.preventDefault(); handleDeleteAccount(); }
         if (e.target.closest && e.target.closest('#findPasswordBtn')) { e.preventDefault(); showFindPasswordModal(); }
     });
@@ -2086,9 +2185,6 @@ function setupLoginHandlers() {
     if (passwordPromptInput) passwordPromptInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') document.getElementById('passwordPromptConfirmBtn')?.click(); });
 }
 
-const resetRankingBtn = document.getElementById('resetRankingBtn');
-if (resetRankingBtn) resetRankingBtn.addEventListener('click', handleResetRanking);
-
 function handleOrientationOrResize() {
     updateRotateOverlay();
     if (isMobile() && isLandscape()) {
@@ -2134,7 +2230,7 @@ function init() {
         ballLaunched = false;
         mouseX = canvas.width / 2;
         updateStageUI(6);
-        document.getElementById('startOverlay').classList.remove('hidden');
+        document.getElementById('startOverlay')?.classList.remove('hidden');
         const loginEl = document.getElementById('loginOverlay');
         if (loginEl) loginEl.classList.add('hidden');
         draw();
@@ -2153,15 +2249,15 @@ function init() {
     }];
     ballLaunched = false;
     mouseX = canvas.width / 2;
-    document.getElementById('startOverlay').classList.add('hidden');
-    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('loginOverlay')?.classList.remove('hidden');
     refreshAccountList();
     updateOptionsButtonVisibility();
     updateExitButton();
+    setupLoginHandlers();
     draw();
 }
 
-setupLoginHandlers();
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
 } else {
