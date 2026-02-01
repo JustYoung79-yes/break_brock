@@ -116,6 +116,12 @@
         #loginOverlay {
             background: rgba(255, 255, 255, 0.95);
         }
+        .login-options-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1;
+        }
         #loginOverlay, #loginOverlay h2, #loginOverlay p {
             color: #000;
         }
@@ -243,7 +249,7 @@
         }
         
         .options-panel {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             right: 0;
@@ -254,12 +260,35 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            z-index: 20;
+            z-index: 9999;
             overflow-y: auto;
         }
         
         .options-panel.hidden {
             display: none;
+        }
+        .options-panel .options-footer {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+        }
+        #storageAdminBtn {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            min-width: 0;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0;
+        }
+        #storageAdminBtn:hover {
+            background: #222;
         }
         
         .options-panel h2 {
@@ -512,6 +541,7 @@
         </div>
         
         <div id="loginOverlay" class="overlay">
+            <button type="button" class="btn btn-small login-options-btn" id="optionsBtnLogin" title="옵션">옵션</button>
             <h2>🎮 벽돌깨기</h2>
             <p id="loginConnectionStatus" class="login-status error" style="display:none; font-size:0.9rem; color:#ff6b6b; margin:8px 0; max-width:280px;"></p>
             <p>계정 아이디를 입력하세요</p>
@@ -656,7 +686,20 @@
                     <option value="large">큼 (960×720)</option>
                 </select>
             </div>
-            <button type="button" class="btn" id="optionsCloseBtn" style="margin-top:20px;" onclick="typeof closeOptions==='function'&&closeOptions()">닫기</button>
+            <div class="options-footer">
+                <button type="button" class="btn" id="optionsCloseBtn" onclick="typeof closeOptions==='function'&&closeOptions()">닫기</button>
+                <button type="button" id="storageAdminBtn" title="온라인 저장소 관리"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 온라인 저장소 관리 모달 -->
+    <div id="storageAdminModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
+        <h2>온라인 저장소 관리</h2>
+        <div class="overlay-buttons" style="margin-top:15px; flex-direction:column; gap:12px;">
+            <button type="button" class="btn btn-outline" id="storageAdminResetAllBtn">전체 데이터 초기화</button>
+            <a class="btn btn-outline" id="storageAdminConsoleLink" href="https://console.firebase.google.com/project/breakbrock-young/firestore" target="_blank" rel="noopener">Firebase Console 열기</a>
+            <button type="button" class="btn btn-small btn-outline" id="storageAdminCloseBtn">닫기</button>
         </div>
     </div>
 

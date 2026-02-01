@@ -1359,7 +1359,7 @@ function draw() {
 }
 
 function isAnyPauseOverlayVisible() {
-    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal'];
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal'];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el && !el.classList.contains('hidden')) return true;
@@ -1832,6 +1832,8 @@ const optionsBtn = document.getElementById('optionsBtn');
 if (optionsBtn) optionsBtn.addEventListener('click', openOptions);
 const optionsBtnSide = document.getElementById('optionsBtnSide');
 if (optionsBtnSide) optionsBtnSide.addEventListener('click', openOptions);
+const optionsBtnLogin = document.getElementById('optionsBtnLogin');
+if (optionsBtnLogin) optionsBtnLogin.addEventListener('click', openOptions);
 
 function updateFullscreenButton() {
     const btns = document.querySelectorAll('#fullscreenBtn, #fullscreenBtnSide');
@@ -1952,6 +1954,38 @@ function closeOptions() {
 }
 const optionsCloseBtn = document.getElementById('optionsCloseBtn');
 if (optionsCloseBtn) optionsCloseBtn.addEventListener('click', closeOptions);
+
+const storageAdminBtn = document.getElementById('storageAdminBtn');
+if (storageAdminBtn) storageAdminBtn.addEventListener('click', () => {
+    const pwd = prompt('비밀번호를 입력하세요.');
+    if (pwd === null) return;
+    if (pwd !== ADMIN_PASSWORD) {
+        alert('비밀번호가 올바르지 않습니다.');
+        return;
+    }
+    const modal = document.getElementById('storageAdminModal');
+    if (modal) modal.classList.remove('hidden');
+});
+
+const storageAdminCloseBtn = document.getElementById('storageAdminCloseBtn');
+if (storageAdminCloseBtn) storageAdminCloseBtn.addEventListener('click', () => {
+    const modal = document.getElementById('storageAdminModal');
+    if (modal) modal.classList.add('hidden');
+});
+
+const storageAdminResetAllBtn = document.getElementById('storageAdminResetAllBtn');
+if (storageAdminResetAllBtn) storageAdminResetAllBtn.addEventListener('click', async () => {
+    if (!confirm('모든 계정과 점수 데이터를 삭제합니다. 복구할 수 없습니다. 계속하시겠습니까?')) return;
+    try {
+        await withTimeout(window.firestoreSetDoc({ accounts: {}, ranking: [] }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+        await resetRankingUI();
+        alert('전체 데이터가 초기화되었습니다.');
+        const modal = document.getElementById('storageAdminModal');
+        if (modal) modal.classList.add('hidden');
+    } catch (e) {
+        alert('초기화에 실패했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
+    }
+});
 
 const bulletFireBtn = document.getElementById('bulletFireBtn');
 if (bulletFireBtn) bulletFireBtn.addEventListener('click', () => {
@@ -2160,11 +2194,9 @@ function hideCreateAccountModal() {
 }
 
 function updateOptionsButtonVisibility() {
-    const loginEl = document.getElementById('loginOverlay');
     const editEl = document.getElementById('editAccountModal');
-    const loginVisible = loginEl && !loginEl.classList.contains('hidden');
     const editVisible = editEl && !editEl.classList.contains('hidden');
-    const hide = (loginVisible || editVisible);
+    const hide = editVisible;
     document.querySelectorAll('#optionsBtn, #optionsBtnSide').forEach(btn => {
         if (btn) btn.style.display = hide ? 'none' : '';
     });
