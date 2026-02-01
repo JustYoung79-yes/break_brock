@@ -30,16 +30,16 @@ const BRICK_OFFSET_LEFT = 30;
 
 // 난이도별 설정
 const DIFFICULTY_CONFIG = {
-    easy: { ballSpeed: 3, stage6BallSpeed: 5, scoreMult: 1, reinforcedMult: 0.5, itemCount: 8, nerfCount: 2 },
-    medium: { ballSpeed: 4, stage6BallSpeed: 6, scoreMult: 2, reinforcedMult: 1, itemCount: 5, nerfCount: 5 },
-    difficult: { ballSpeed: 5, stage6BallSpeed: 7, scoreMult: 3, reinforcedMult: 1.5, itemCount: 2, nerfCount: 8 }
+    easy: { ballSpeed: 3, stage6BallSpeed: 5, scoreMult: 1, bossScoreMult: 1, reinforcedMult: 0.5, itemCount: 8, nerfCount: 2 },
+    medium: { ballSpeed: 5, stage6BallSpeed: 7, scoreMult: 2, bossScoreMult: 2, reinforcedMult: 1, itemCount: 5, nerfCount: 5 },
+    hard: { ballSpeed: 7, stage6BallSpeed: 9, scoreMult: 3, bossScoreMult: 3, reinforcedMult: 1.5, itemCount: 2, nerfCount: 8 }
 };
 
 // 옵션 설정값
 let options = {
     paddleSpeed: 12,
     ballSpeed: 3,
-    difficulty: 'medium',
+    difficulty: 'easy',
     brickRows: 6,
     brickCols: 10,
     canvasWidth: 800,
@@ -101,6 +101,17 @@ function tryLockLandscape() {
     } catch (e) { /* 일부 브라우저에서 lock 미지원 */ }
 }
 
+// 모바일 로그인 후: 가로모드+전체화면 고정 (세로 전환 불가)
+function enforceMobileLandscapeFullscreen() {
+    if (!isMobile() || isLoginScreenVisible()) return;
+    tryLockLandscape();
+    if (!isFullscreen()) {
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (req) req.call(el).catch(() => {});
+    }
+}
+
 // 회전 안내 오버레이 표시 (모바일 세로 모드일 때, 로그인 화면 제외)
 function updateRotateOverlay() {
     const el = document.getElementById('rotateOverlay');
@@ -152,7 +163,7 @@ const paddle = {
 const brickColors = ['#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff', '#5f27cd'];
 
 // 아이템 타입 (8종)
-const ITEM_TYPES = ['TRIPLE_BALL', 'BULLET', 'LIFE', 'PADDLE_2X', 'BALL_SLOW', 'MAGNET', 'EXTRA_POINTS', 'LASER'];
+const ITEM_TYPES = ['TRIPLE_BALL', 'BULLET', 'LIFE', 'PADDLE_2X', 'BALL_SLOW', 'MAGNET', 'EXTRA_POINTS', 'LASER', 'POWER_BALL'];
 
 // 너프 타입 (보스 총알/너프블럭)
 const NERF_TYPES = ['PADDLE_SLOW', 'PADDLE_SMALL', 'BALL_FAST', 'GAME_FREEZE'];
@@ -165,10 +176,9 @@ const BOSS_BULLET_NERF_WEIGHTS = [
     { type: 'GAME_FREEZE', weight: 1 }
 ];
 
-// 체력별 색상 (1~10)
+// 체력별 색상 (1~4) - 1:초록, 2:파랑, 3:분홍, 4:보라
 const HP_COLORS = {
-    1: '#ff6b6b', 2: '#feca57', 3: '#48dbfb', 4: '#5f27cd', 5: '#ff3838',
-    6: '#ff3838', 7: '#1dd1a1', 8: '#ee5a24', 9: '#5f27cd', 10: '#00d2d3'
+    1: '#22c55e', 2: '#3b82f6', 3: '#ec4899', 4: '#8b5cf6'
 };
 
 // 스테이지별 보스 설정: { hp, movePattern: 'none'|'lr'|'free'|'curve', shootInterval: 0|180|300 }
@@ -200,7 +210,8 @@ const ITEM_DISPLAY_NAMES = {
     paddleSmall: '판 축소',
     ballFast: '공 빠름',
     gameFreeze: '2초 멈춤',
-    paddleFreeze: '판 멈춤'
+    paddleFreeze: '판 멈춤',
+    powerBall: '강화공'
 };
 
 // 스테이지별 설정 (블록수 증가, 크기 감소)
@@ -307,7 +318,10 @@ function createBricks() {
             let hp = 1, itemType = null;
             if (isItemBlock) {
                 itemType = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
-                if (itemType === 'LIFE' && Math.random() > 0.2) itemType = ITEM_TYPES.filter(t => t !== 'LIFE')[Math.floor(Math.random() * 7)];
+                if (itemType === 'LIFE' && Math.random() > 0.2) {
+                    const others = ITEM_TYPES.filter(t => t !== 'LIFE');
+                    itemType = others[Math.floor(Math.random() * others.length)];
+                }
             } else if (isNerfBlock) {
                 itemType = 'NERF_' + NERF_TYPES[Math.floor(Math.random() * NERF_TYPES.length)];
             } else if (isReinforced) {
@@ -352,6 +366,7 @@ const FRAME_MS = 1000 / TARGET_FPS;
 let mouseX = canvas.width / 2;
 let keys = {};
 let lastInputMethod = 'mouse';
+let lastPaddleDirection = 0;
 
 function getCanvasX(clientX) {
     const rect = canvas.getBoundingClientRect();
@@ -359,7 +374,7 @@ function getCanvasX(clientX) {
     return (clientX - rect.left) * scaleX;
 }
 
-canvas.addEventListener('mousemove', (e) => {
+document.addEventListener('mousemove', (e) => {
     mouseX = getCanvasX(e.clientX);
     lastInputMethod = 'mouse';
 });
@@ -382,6 +397,8 @@ canvas.addEventListener('touchmove', (e) => {
     if (e.touches.length > 0) {
         const currentX = getCanvasX(e.touches[0].clientX);
         const delta = currentX - lastTouchX;
+        if (delta > 0) lastPaddleDirection = 1;
+        else if (delta < 0) lastPaddleDirection = -1;
         paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + delta));
         lastTouchX = currentX;
     }
@@ -403,6 +420,14 @@ canvas.addEventListener('touchcancel', () => {
 document.addEventListener('touchmove', (e) => {
     if (touchOnCanvas && gameRunning) {
         e.preventDefault();
+        if (e.touches.length > 0) {
+            const currentX = getCanvasX(e.touches[0].clientX);
+            const delta = currentX - lastTouchX;
+            if (delta > 0) lastPaddleDirection = 1;
+            else if (delta < 0) lastPaddleDirection = -1;
+            paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + delta));
+            lastTouchX = currentX;
+        }
     }
 }, { passive: false });
 
@@ -423,7 +448,7 @@ document.addEventListener('keydown', (e) => {
     if (['ArrowLeft', 'ArrowRight'].includes(e.key)) lastInputMethod = 'keyboard';
     if (e.key === ' ' && gameRunning && !gamePaused) {
         if (!ballLaunched) launchBall();
-        else if (hasBulletPower && options.difficulty === 'difficult' && !isMobile()) shootBullet();
+        else if (hasBulletPower && options.difficulty === 'hard' && !isMobile()) shootBullet();
     }
 });
 
@@ -432,15 +457,16 @@ document.addEventListener('keyup', (e) => {
 });
 
 function updatePaddle() {
-    const paddleFrozen = activeItems.some(i => i.type === 'paddleFreeze');
-    if (paddleFrozen) return;
     if (keys['ArrowLeft'] || keys['ArrowRight']) {
-        if (keys['ArrowLeft']) paddle.x -= paddle.speed;
-        if (keys['ArrowRight']) paddle.x += paddle.speed;
+        if (keys['ArrowLeft']) { paddle.x -= paddle.speed; lastPaddleDirection = -1; }
+        if (keys['ArrowRight']) { paddle.x += paddle.speed; lastPaddleDirection = 1; }
         lastInputMethod = 'keyboard';
     } else if (lastInputMethod === 'mouse') {
         const targetX = mouseX - paddle.width / 2;
+        const prevX = paddle.x;
         paddle.x += (targetX - paddle.x) * 0.2;
+        if (paddle.x > prevX) lastPaddleDirection = 1;
+        else if (paddle.x < prevX) lastPaddleDirection = -1;
     }
     paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
 }
@@ -464,8 +490,9 @@ function launchBall() {
     if (ballLaunched || balls.length === 0) return;
     ballStickTimer = 0;
     const speed = options.ballSpeed;
+    const dir = lastPaddleDirection > 0 ? 1 : (lastPaddleDirection < 0 ? -1 : (Math.random() > 0.5 ? 1 : -1));
     balls.forEach(b => {
-        b.dx = speed * (Math.random() > 0.5 ? 1 : -1);
+        b.dx = speed * dir;
         b.dy = -speed;
         const c = clampBallAngle(b.dx, b.dy);
         b.dx = c.dx; b.dy = c.dy;
@@ -476,7 +503,7 @@ function launchBall() {
 function updateBulletFireButtonVisibility() {
     const btn = document.getElementById('bulletFireBtn');
     if (!btn) return;
-    const show = gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'difficult' && isMobile();
+    const show = gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'hard' && isMobile();
     btn.style.display = show ? '' : 'none';
 }
 
@@ -584,12 +611,17 @@ function applyNerfEffect(type) {
             activeItems.push({ type: 'paddleSmall', duration });
             break;
         case 'BALL_FAST':
-            clearBallSpeedEffectsAndRestoreBase();
-            activeItems.push({ type: 'ballFast', duration });
+            activeItems = activeItems.filter(i => i.type !== 'ballSlow');
             balls.forEach(b => {
-                b.dx *= 2;
-                b.dy *= 2;
+                const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+                if (s > 0.001) {
+                    const baseSpeed = options.ballSpeed;
+                    const mult = (baseSpeed * 2) / s;
+                    b.dx *= mult;
+                    b.dy *= mult;
+                }
             });
+            activeItems.push({ type: 'ballFast', duration });
             break;
         case 'GAME_FREEZE':
             activeItems.push({ type: 'paddleFreeze', duration: 120 });  // 2초 멈춤
@@ -613,10 +645,15 @@ function applyItemEffect(type) {
             activeItems.push({ type: 'paddle2x', duration: 600 });
             break;
         case 'BALL_SLOW':
-            clearBallSpeedEffectsAndRestoreBase();
+            activeItems = activeItems.filter(i => i.type !== 'ballFast');
             balls.forEach(b => {
-                b.dx *= 0.5;
-                b.dy *= 0.5;
+                const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+                if (s > 0.001) {
+                    const baseSpeed = options.ballSpeed;
+                    const mult = (baseSpeed * 0.5) / s;
+                    b.dx *= mult;
+                    b.dy *= mult;
+                }
             });
             activeItems.push({ type: 'ballSlow', duration: 600 });
             break;
@@ -664,11 +701,34 @@ function applyItemEffect(type) {
                 updateScoreUI(score);
             }
             break;
+        case 'POWER_BALL':
+            activeItems.push({ type: 'powerBall', duration: 600 });
+            break;
     }
 }
 
+function applyBallSpeedFromActiveItems() {
+    const ballSlow = activeItems.some(i => i.type === 'ballSlow');
+    const ballFast = activeItems.some(i => i.type === 'ballFast');
+    const baseSpeed = options.ballSpeed;
+    let targetSpeed = baseSpeed;
+    if (ballSlow) targetSpeed *= 0.5;
+    if (ballFast) targetSpeed *= 2;
+    balls.forEach(b => {
+        const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+        if (s < 0.001) {
+            b.dx = targetSpeed * (Math.random() > 0.5 ? 1 : -1);
+            b.dy = -targetSpeed;
+            return;
+        }
+        const mult = targetSpeed / s;
+        b.dx *= mult;
+        b.dy *= mult;
+    });
+}
+
 function updateActiveItems() {
-    if (hasBulletPower && options.difficulty !== 'difficult') {
+    if (hasBulletPower && options.difficulty !== 'hard') {
         bulletAutoFireFrame++;
         if (bulletAutoFireFrame >= BULLET_AUTO_FIRE_INTERVAL) {
             bulletAutoFireFrame = 0;
@@ -680,29 +740,9 @@ function updateActiveItems() {
     updateBulletFireButtonVisibility();
     activeItems = activeItems.filter(item => {
         item.duration--;
-        if (item.type === 'paddle2x' && item.duration <= 0) paddle.width = paddle.baseWidth;
-        if (item.type === 'bullet' && item.duration <= 0) hasBulletPower = false;
-        if (item.type === 'ballSlow' && item.duration <= 0) {
-            balls.forEach(b => { b.dx *= 2; b.dy *= 2; });
-        }
-        if (item.type === 'paddleSlow' && item.duration <= 0) paddle.speed = options.paddleSpeed;
-        if (item.type === 'paddleSmall' && item.duration <= 0) paddle.width = paddle.baseWidth;
-        if (item.type === 'ballFast' && item.duration <= 0) {
-            const baseSpeed = options.ballSpeed;
-            balls.forEach(b => {
-                const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
-                if (s > 0.001) {
-                    const mult = baseSpeed / s;
-                    b.dx *= mult;
-                    b.dy *= mult;
-                } else {
-                    b.dx = baseSpeed * (Math.random() > 0.5 ? 1 : -1);
-                    b.dy = -baseSpeed;
-                }
-            });
-        }
         return item.duration > 0;
     });
+    hasBulletPower = activeItems.some(i => i.type === 'bullet');
     const paddleSlow = activeItems.some(i => i.type === 'paddleSlow');
     const paddleSmall = activeItems.some(i => i.type === 'paddleSmall');
     const paddle2x = activeItems.some(i => i.type === 'paddle2x');
@@ -711,6 +751,7 @@ function updateActiveItems() {
     if (paddleSmall) paddle.width = paddle.baseWidth * 0.7;
     else if (paddle2x) paddle.width = Math.min(paddle.baseWidth * 2, canvas.width * 0.8);
     else paddle.width = paddle.baseWidth;
+    applyBallSpeedFromActiveItems();
 }
 
 function updateFallingItems(dt = 1) {
@@ -761,9 +802,17 @@ function hitBrick(brick, isBullet = false) {
         brick.bossInvinciblePhase = true;
     }
     if (brick.isBoss && currentStage === 6 && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
-    const baseScore = brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
     const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
-    score += baseScore * cfg.scoreMult;
+    let addScore;
+    if (brick.isBoss) {
+        const BOSS_SCORES = [100, 200, 500, 1000, 2000, 4000];
+        const baseScore = BOSS_SCORES[Math.min(currentStage - 1, 5)] || 100;
+        addScore = baseScore * (cfg.bossScoreMult || 1);
+    } else {
+        const baseScore = brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
+        addScore = baseScore * cfg.scoreMult;
+    }
+    score += addScore;
     updateScoreUI(score);
     if (brick.hp <= 0) {
         brick.visible = false;
@@ -789,7 +838,7 @@ function updateBoss(dt = 1) {
             }
             brick.bossShootTimer = (brick.bossShootTimer || 0) + dt;
             const shootInt = (brick.hp === 1 ? cfg.shootInterval / 2 : cfg.shootInterval);
-            const bulletDy = (brick.hp === 1 ? 12 : 6);
+            const bulletDy = (brick.hp === 1 ? 6 : 3);
             if (cfg.shootInterval > 0 && brick.bossShootTimer >= shootInt) {
                 brick.bossShootTimer = 0;
                 bossBullets.push({
@@ -951,24 +1000,27 @@ function updateBall(dt = 1) {
         }
         return;
     }
+    const powerBallActive = activeItems.some(i => i.type === 'powerBall');
+    const ballRadiusMult = powerBallActive ? 1.5 : 1;
     for (let bi = balls.length - 1; bi >= 0; bi--) {
         const ball = balls[bi];
+        const r = ball.radius * ballRadiusMult;
         ball.x += ball.dx * dt;
         ball.y += ball.dy * dt;
 
-        if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
+        if (ball.x - r < 0 || ball.x + r > canvas.width) {
             ball.dx = -ball.dx;
             const c = clampBallAngle(ball.dx, ball.dy);
             ball.dx = c.dx; ball.dy = c.dy;
         }
-        if (ball.y - ball.radius < 0) {
+        if (ball.y - r < 0) {
             ball.dy = -ball.dy;
             const c = clampBallAngle(ball.dx, ball.dy);
             ball.dx = c.dx; ball.dy = c.dy;
         }
 
-        if (ball.y + ball.radius > paddle.y &&
-            ball.y - ball.radius < paddle.y + paddle.height &&
+        if (ball.y + r > paddle.y &&
+            ball.y - r < paddle.y + paddle.height &&
             ball.x > paddle.x &&
             ball.x < paddle.x + paddle.width) {
             const hitPos = Math.max(-1, Math.min(1, (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2)));
@@ -981,7 +1033,7 @@ function updateBall(dt = 1) {
             ball.dx = c.dx; ball.dy = c.dy;
         }
 
-        if (ball.y + ball.radius > canvas.height) {
+        if (ball.y + r > canvas.height) {
             balls.splice(bi, 1);
             if (balls.length === 0) {
                 lives--;
@@ -997,24 +1049,27 @@ function updateBall(dt = 1) {
 
     balls.forEach(ball => {
         let ballHit = false;
+        const r = ball.radius * ballRadiusMult;
         bricks.forEach(row => {
             row.forEach(brick => {
-                if (brick && brick.visible && !ballHit &&
-                    ball.x + ball.radius > brick.x &&
-                    ball.x - ball.radius < brick.x + brick.width &&
-                    ball.y + ball.radius > brick.y &&
-                    ball.y - ball.radius < brick.y + brick.height) {
+                if (brick && brick.visible && (!ballHit || powerBallActive) &&
+                    ball.x + r > brick.x &&
+                    ball.x - r < brick.x + brick.width &&
+                    ball.y + r > brick.y &&
+                    ball.y - r < brick.y + brick.height) {
                     hitBrick(brick, false);
-                    const overlapLeft = (ball.x + ball.radius) - brick.x;
-                    const overlapRight = (brick.x + brick.width) - (ball.x - ball.radius);
-                    const overlapTop = (ball.y + ball.radius) - brick.y;
-                    const overlapBottom = (brick.y + brick.height) - (ball.y - ball.radius);
-                    const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-                    if (minOverlap === overlapLeft || minOverlap === overlapRight) ball.dx = -ball.dx;
-                    else ball.dy = -ball.dy;
-                    const c = clampBallAngle(ball.dx, ball.dy);
-                    ball.dx = c.dx; ball.dy = c.dy;
-                    ballHit = true;
+                    if (!powerBallActive) {
+                        const overlapLeft = (ball.x + r) - brick.x;
+                        const overlapRight = (brick.x + brick.width) - (ball.x - r);
+                        const overlapTop = (ball.y + r) - brick.y;
+                        const overlapBottom = (brick.y + brick.height) - (ball.y - r);
+                        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+                        if (minOverlap === overlapLeft || minOverlap === overlapRight) ball.dx = -ball.dx;
+                        else ball.dy = -ball.dy;
+                        const c = clampBallAngle(ball.dx, ball.dy);
+                        ball.dx = c.dx; ball.dy = c.dy;
+                        ballHit = true;
+                    }
                 }
             });
         });
@@ -1057,6 +1112,14 @@ function updateBall(dt = 1) {
 function showStageClearAndNext() {
     gameRunning = false;
     cancelAnimationFrame(animationId);
+    activeItems = [];
+    fallingItems = [];
+    hasBulletPower = false;
+    bullets = [];
+    bulletAutoFireFrame = 0;
+    paddle.width = paddle.baseWidth;
+    paddle.speed = options.paddleSpeed;
+    updateBulletFireButtonVisibility();
     const msgEl = document.getElementById('stageMsgText');
     const overlayEl = document.getElementById('stageMsgOverlay');
     const resetBtn = document.getElementById('resetRankingStageBtn');
@@ -1136,17 +1199,26 @@ function drawPaddle() {
 }
 
 function drawBall() {
+    const powerBallActive = activeItems.some(i => i.type === 'powerBall');
+    const rMult = powerBallActive ? 1.5 : 1;
     balls.forEach(ball => {
+        const r = ball.radius * rMult;
         const gradient = ctx.createRadialGradient(
             ball.x - 3, ball.y - 3, 0,
-            ball.x, ball.y, ball.radius
+            ball.x, ball.y, r
         );
-        gradient.addColorStop(0, '#ffffff');
-        gradient.addColorStop(0.5, '#e0e0ff');
-        gradient.addColorStop(1, '#9d9dff');
+        if (powerBallActive) {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.5, '#ff6666');
+            gradient.addColorStop(1, '#cc0000');
+        } else {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.5, '#e0e0ff');
+            gradient.addColorStop(1, '#9d9dff');
+        }
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
         ctx.fill();
     });
 }
@@ -1287,14 +1359,6 @@ function drawBricks() {
                         ctx.drawImage(bombImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     }
                 }
-                if (!brick.isBoss && hp > 1 && !brick.isItem) {
-                    ctx.fillStyle = '#fff';
-                    const fontSize = Math.min(brick.width, brick.height) * 0.5;
-                    ctx.font = 'bold ' + fontSize + 'px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(hp, brick.x + brick.width/2, brick.y + brick.height/2);
-                }
             }
         });
     });
@@ -1359,7 +1423,8 @@ function draw() {
 }
 
 function isAnyPauseOverlayVisible() {
-    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal'];
+    if (typeof document !== 'undefined' && document.hidden) return true;
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el && !el.classList.contains('hidden')) return true;
@@ -1391,7 +1456,7 @@ function gameLoop(now = performance.now()) {
 function applyOptions() {
     options.paddleSpeed = parseInt(document.getElementById('paddleSpeed').value) || 12;
     const diffEl = document.getElementById('difficulty');
-    options.difficulty = (diffEl && diffEl.value) || 'medium';
+    options.difficulty = (diffEl && diffEl.value) || 'easy';
     const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
     options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
     const blockCount = document.getElementById('blockCount').value;
@@ -1450,6 +1515,7 @@ function startGame(isNewGame = true) {
     document.getElementById('winOverlay')?.classList.add('hidden');
     updateOptionsButtonVisibility();
     updateBulletFireButtonVisibility();
+    if (isMobile()) enforceMobileLandscapeFullscreen();
     paddle.x = (canvas.width - paddle.width) / 2;
     mouseX = canvas.width / 2;
     resetBall();
@@ -1517,8 +1583,8 @@ function stopBGM() {
     }
 }
 
-const MAX_RANKING = 20;
-const RANKING_DISPLAY_COUNT = 20;
+const MAX_RANKING = 10;
+const RANKING_DISPLAY_COUNT = 10;
 const FIRESTORE_TIMEOUT_MS = 15000;
 
 function isOnline() {
@@ -1590,7 +1656,7 @@ async function getAccount(name) {
 const DEFAULT_OPTIONS = {
     paddleSpeed: 12,
     ballSpeed: 3,
-    difficulty: 'medium',
+    difficulty: 'easy',
     brickRows: 6,
     brickCols: 10,
     canvasWidth: 800,
@@ -1602,7 +1668,9 @@ async function loadOptionsForAccount(accountName) {
     const saved = acc?.options;
     if (saved && typeof saved === 'object') {
         options.paddleSpeed = saved.paddleSpeed ?? DEFAULT_OPTIONS.paddleSpeed;
-        options.difficulty = saved.difficulty ?? DEFAULT_OPTIONS.difficulty;
+        let savedDiff = saved.difficulty ?? DEFAULT_OPTIONS.difficulty;
+        if (savedDiff === 'difficult') savedDiff = 'hard';
+        options.difficulty = savedDiff;
         const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
         options.ballSpeed = cfg.ballSpeed;
         options.brickRows = saved.brickRows ?? DEFAULT_OPTIONS.brickRows;
@@ -1613,7 +1681,7 @@ async function loadOptionsForAccount(accountName) {
         Object.assign(options, DEFAULT_OPTIONS);
     }
     const diffEl = document.getElementById('difficulty');
-    if (diffEl) diffEl.value = options.difficulty || 'medium';
+    if (diffEl) diffEl.value = options.difficulty || 'easy';
 }
 
 async function saveOptionsToAccount() {
@@ -1738,7 +1806,10 @@ function gameOver() {
     cancelAnimationFrame(animationId);
     saveGameState();
     document.getElementById('finalScore').textContent = score;
-    document.getElementById('gameOverOverlay')?.classList.remove('hidden');
+    const overlayEl = document.getElementById('gameOverOverlay');
+    const rankingEl = document.getElementById('rankingDisplay');
+    if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p>순위 불러오는 중...</p>';
+    if (overlayEl) overlayEl.classList.remove('hidden');
     (async () => {
         try {
             await saveToRanking(score);
@@ -1757,8 +1828,7 @@ function gameOver() {
             await renderRanking('rankingDisplay');
         } catch (e) {
             console.warn('gameOver 점수 처리 오류:', e);
-            const el = document.getElementById('rankingDisplay');
-            if (el) el.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
+            if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
         }
     })();
 }
@@ -1769,7 +1839,10 @@ function winGame() {
     stopBGM();
     cancelAnimationFrame(animationId);
     document.getElementById('winScore').textContent = score;
-    document.getElementById('winOverlay')?.classList.remove('hidden');
+    const overlayEl = document.getElementById('winOverlay');
+    const rankingEl = document.getElementById('winRankingDisplay');
+    if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p>순위 불러오는 중...</p>';
+    if (overlayEl) overlayEl.classList.remove('hidden');
     (async () => {
         try {
             await saveToRanking(score);
@@ -1788,8 +1861,7 @@ function winGame() {
             await renderRanking('winRankingDisplay');
         } catch (e) {
             console.warn('winGame 점수 처리 오류:', e);
-            const el = document.getElementById('winRankingDisplay');
-            if (el) el.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
+            if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
         }
     })();
 }
@@ -1820,7 +1892,7 @@ function openOptions() {
     const diffEl = document.getElementById('difficulty');
     const blockEl = document.getElementById('blockCount');
     if (paddleEl) paddleEl.value = options.paddleSpeed;
-    if (diffEl) diffEl.value = options.difficulty || 'medium';
+    if (diffEl) diffEl.value = options.difficulty || 'easy';
     if (paddleVal) paddleVal.textContent = options.paddleSpeed;
     if (blockEl) blockEl.value = options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
     const ssEl = document.getElementById('screenSize');
@@ -1919,7 +1991,7 @@ function closeOptions() {
         const paddleEl = document.getElementById('paddleSpeed');
         const diffEl = document.getElementById('difficulty');
         options.paddleSpeed = parseInt(paddleEl ? paddleEl.value : 12) || 12;
-        options.difficulty = (diffEl && diffEl.value) || 'medium';
+        options.difficulty = (diffEl && diffEl.value) || 'easy';
         const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
         options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
         const blockEl = document.getElementById('blockCount');
@@ -1989,7 +2061,7 @@ if (storageAdminResetAllBtn) storageAdminResetAllBtn.addEventListener('click', a
 
 const bulletFireBtn = document.getElementById('bulletFireBtn');
 if (bulletFireBtn) bulletFireBtn.addEventListener('click', () => {
-    if (gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'difficult') shootBullet();
+    if (gameRunning && !gamePaused && hasBulletPower && options.difficulty === 'hard') shootBullet();
 });
 
 const paddleSpeedEl = document.getElementById('paddleSpeed');
@@ -2069,14 +2141,7 @@ async function doLogin() {
     document.getElementById('startOverlay')?.classList.remove('hidden');
     updateRotateOverlay();
     updateExitButton();
-    if (isMobile()) {
-        tryLockLandscape();
-        if (!isFullscreen()) {
-            const el = document.documentElement;
-            const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-            if (req) req.call(el).catch(() => {});
-        }
-    }
+    if (isMobile()) enforceMobileLandscapeFullscreen();
 }
 
 let passwordPromptCallback = null;
@@ -2420,8 +2485,17 @@ function setupLoginHandlers() {
 }
 
 function handleOrientationOrResize() {
+    const wasPortrait = isMobile() && !isLandscape();
     updateRotateOverlay();
+    if (isMobile() && !isLandscape() && gameRunning) {
+        gamePaused = true;
+        stopBGM();
+    }
     if (isMobile() && isLandscape()) {
+        if (gameRunning) {
+            gamePaused = false;
+            startBGM(currentStage);
+        }
         applyMobileLandscapeDimensions();
         applyOptions();
         try {
@@ -2441,11 +2515,34 @@ function handleOrientationOrResize() {
         } catch (e) { console.warn('orientation resize:', e); }
     }
 }
-window.addEventListener('orientationchange', handleOrientationOrResize);
+window.addEventListener('orientationchange', () => {
+    if (isMobile()) enforceMobileLandscapeFullscreen();
+    handleOrientationOrResize();
+});
 window.addEventListener('resize', () => {
-    if (isMobile()) handleOrientationOrResize();
+    if (isMobile()) {
+        enforceMobileLandscapeFullscreen();
+        handleOrientationOrResize();
+    } else {
+        handleOrientationOrResize();
+    }
     updateFullscreenButton();
     updateExitButton();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (gameRunning) {
+            gamePaused = true;
+            stopBGM();
+        }
+    } else {
+        if (isMobile()) enforceMobileLandscapeFullscreen();
+        if (gameRunning && !(isMobile() && !isLandscape())) {
+            gamePaused = false;
+            startBGM(currentStage);
+        }
+    }
 });
 
 async function init() {
