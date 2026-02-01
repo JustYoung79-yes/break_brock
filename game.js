@@ -7,6 +7,7 @@ let firestoreDb = window.firestoreDb || null;
 
 const STAGE6_ONLY = (typeof window !== 'undefined' && window.STAGE6_ONLY) || false;
 const BOSS6_TEST = (typeof window !== 'undefined' && window.BOSS6_TEST) || false;
+const BOSS5_TEST = (typeof window !== 'undefined' && window.BOSS5_TEST) || false;
 
 // 폴더 구조에 따른 경로 (GitHub Pages 등 서브경로 대응)
 const PATH_BASE = (function() {
@@ -22,17 +23,17 @@ const PATH = {
 
 // 게임 설정 (옵션에서 변경 가능)
 const PADDLE_WIDTH = 168; // 120 * 1.4
-const PADDLE_HEIGHT = 15;
+const PADDLE_HEIGHT = 30;
 const BALL_RADIUS = 8;
 const BRICK_PADDING = 4;
 const BRICK_OFFSET_TOP = 60;
 const BRICK_OFFSET_LEFT = 30;
 
-// 난이도별 설정
+// 난이도별 설정 (stage6BossInvincibleMs: HP 1일 때 무적 시간, ms)
 const DIFFICULTY_CONFIG = {
-    easy: { ballSpeed: 3, stage6BallSpeed: 5, scoreMult: 1, bossScoreMult: 1, reinforcedMult: 0.5, itemCount: 8, nerfCount: 2 },
-    medium: { ballSpeed: 5, stage6BallSpeed: 7, scoreMult: 2, bossScoreMult: 2, reinforcedMult: 1, itemCount: 5, nerfCount: 5 },
-    hard: { ballSpeed: 7, stage6BallSpeed: 9, scoreMult: 3, bossScoreMult: 3, reinforcedMult: 1.5, itemCount: 2, nerfCount: 8 }
+    easy: { ballSpeed: 3, stage6BallSpeed: 5, scoreMult: 1, bossScoreMult: 1, reinforcedMult: 0.5, itemCount: 8, nerfCount: 2, stage6BossInvincibleMs: 10000 },
+    medium: { ballSpeed: 5, stage6BallSpeed: 7, scoreMult: 2, bossScoreMult: 2, reinforcedMult: 1, itemCount: 5, nerfCount: 5, stage6BossInvincibleMs: 20000 },
+    hard: { ballSpeed: 7, stage6BallSpeed: 9, scoreMult: 3, bossScoreMult: 3, reinforcedMult: 1.5, itemCount: 2, nerfCount: 8, stage6BossInvincibleMs: 33000 }
 };
 
 // 옵션 설정값
@@ -249,7 +250,29 @@ function isBrickInLayout(stage, row, col, rows, cols) {
 function createBricks() {
     if (BOSS6_TEST) {
         const cfg = BOSS_CONFIG[6] || BOSS_CONFIG[1];
-        const w = 80, h = 80;  // stage6 기본 크기 반
+        const w = 200, h = 200;  // stage6 보스 크기
+        return [[{
+            x: (options.canvasWidth - w) / 2,
+            y: BRICK_OFFSET_TOP + 80,
+            width: w,
+            height: h,
+            visible: true,
+            hp: cfg.hp,
+            maxHp: cfg.hp,
+            isItem: false,
+            isNerf: false,
+            itemType: null,
+            isBoss: true,
+            radius: Math.min(w, h) / 2,
+            bossBaseSize: Math.min(w, h),
+            bossVx: 0,
+            bossVy: 0,
+            bossShootTimer: 0
+        }]];
+    }
+    if (BOSS5_TEST) {
+        const cfg = BOSS_CONFIG[5] || BOSS_CONFIG[1];
+        const w = 80, h = 80;
         return [[{
             x: (options.canvasWidth - w) / 2,
             y: BRICK_OFFSET_TOP + 80,
@@ -798,7 +821,9 @@ function hitBrick(brick, isBullet = false) {
     playBrickBreakSound();
     vibrateBrickBreak();
     if (brick.isBoss && brick.hp === 1 && currentStage === 6) {
-        brick.bossInvincibleUntil = Date.now() + 30000;  // stage6만: 첫 무적 30초
+        const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+        const invincibleMs = cfg.stage6BossInvincibleMs || 20000;
+        brick.bossInvincibleUntil = Date.now() + invincibleMs;  // stage6만: 난이도별 무적 시간
         brick.bossInvinciblePhase = true;
     }
     if (brick.isBoss && currentStage === 6 && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
@@ -1088,7 +1113,7 @@ function updateBall(dt = 1) {
             bossBrick.isBoss = true;
             bossBrick.hp = cfg.hp;
             bossBrick.maxHp = cfg.hp;
-            const baseMult = currentStage === 6 ? 1.5 : 3;  // stage6 기본 크기 반
+            const baseMult = currentStage === 6 ? 3.8 : 3;  // stage6 보스 크기 (최종보스 강조)
             const size = Math.min(bossBrick.width, bossBrick.height) * baseMult;
             bossBrick.x += (bossBrick.width - size) / 2;
             bossBrick.y += (bossBrick.height - size) / 2;
@@ -1178,24 +1203,60 @@ bossImage.onload = onImageLoad;
 bossImage.onerror = () => { bossImage.src = PATH.image + 'boss.png'; };
 bossImage.src = PATH.image + 'Boss.png';
 
+const earlyBossImage = new Image();
+earlyBossImage.onload = onImageLoad;
+earlyBossImage.onerror = () => { earlyBossImage.src = PATH.image + 'Boss.png'; };
+earlyBossImage.src = PATH.image + '초반보스.png';
+
+const stage3BossImage = new Image();
+stage3BossImage.onload = onImageLoad;
+stage3BossImage.onerror = () => { stage3BossImage.src = PATH.image + 'Boss.png'; };
+stage3BossImage.src = PATH.image + '프로깃.png';
+
+const stage5BossImage = new Image();
+stage5BossImage.onload = onImageLoad;
+stage5BossImage.onerror = () => { stage5BossImage.src = PATH.image + 'Boss.png'; };
+stage5BossImage.src = PATH.image + '스테이지5보스.png';
+
+const stage6BossImage = new Image();
+stage6BossImage.onload = onImageLoad;
+stage6BossImage.onerror = () => { stage6BossImage.src = PATH.image + 'Boss.png'; };
+stage6BossImage.src = PATH.image + '최종보스.png';
+
+const paddleImage = new Image();
+paddleImage.onload = onImageLoad;
+paddleImage.src = PATH.image + '검.png';
+
+const stage6BgImage = new Image();
+stage6BgImage.onload = onImageLoad;
+stage6BgImage.src = PATH.image + '스테이지6배경화면.png';
+
 function drawPaddle() {
-    const gradient = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.width, 0);
-    gradient.addColorStop(0, '#667eea');
-    gradient.addColorStop(0.5, '#764ba2');
-    gradient.addColorStop(1, '#667eea');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    const cx = paddle.x + paddle.width / 2;
-    const cy = paddle.y + paddle.height;
-    const a = paddle.width / 2;
-    const b = paddle.height * 0.8;
-    ctx.moveTo(paddle.x, cy);
-    ctx.ellipse(cx, cy, a, b, 0, Math.PI, Math.PI * 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (paddleImage.complete && paddleImage.naturalWidth > 0) {
+        try {
+            ctx.drawImage(paddleImage, paddle.x, paddle.y, paddle.width, paddle.height);
+            return;
+        } catch (e) { /* 이미지 그리기 실패 시 fallback */ }
+    }
+    {
+        const gradient = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.width, 0);
+        gradient.addColorStop(0, '#667eea');
+        gradient.addColorStop(0.5, '#764ba2');
+        gradient.addColorStop(1, '#667eea');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        const cx = paddle.x + paddle.width / 2;
+        const cy = paddle.y + paddle.height;
+        const a = paddle.width / 2;
+        const b = paddle.height * 0.8;
+        ctx.moveTo(paddle.x, cy);
+        ctx.ellipse(cx, cy, a, b, 0, Math.PI, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
 }
 
 function drawBall() {
@@ -1211,6 +1272,10 @@ function drawBall() {
             gradient.addColorStop(0, '#ffffff');
             gradient.addColorStop(0.5, '#ff6666');
             gradient.addColorStop(1, '#cc0000');
+        } else if (currentStage === 6) {
+            gradient.addColorStop(0, '#333333');
+            gradient.addColorStop(0.5, '#1a1a1a');
+            gradient.addColorStop(1, '#000000');
         } else {
             gradient.addColorStop(0, '#ffffff');
             gradient.addColorStop(0.5, '#e0e0ff');
@@ -1324,8 +1389,9 @@ function drawBricks() {
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
                     ctx.closePath();
                     ctx.clip();
-                    if (bossImage.complete && bossImage.naturalWidth > 0) {
-                        ctx.drawImage(bossImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
+                    const img = (currentStage === 1 || currentStage === 2) ? earlyBossImage : (currentStage === 3 ? stage3BossImage : (currentStage === 4 ? stage4BossImage : (currentStage === 5 ? stage5BossImage : (currentStage === 6 ? stage6BossImage : bossImage))));
+                    if (img.complete && img.naturalWidth > 0) {
+                        ctx.drawImage(img, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     } else {
                         ctx.fillStyle = `hsl(${(Date.now() / 50) % 360}, 80%, 55%)`;
                         ctx.beginPath();
@@ -1398,19 +1464,23 @@ function draw() {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < canvas.width; i += 40) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
-    }
-    for (let i = 0; i < canvas.height; i += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(canvas.width, i);
-        ctx.stroke();
+    if (currentStage === 6 && stage6BgImage.complete && stage6BgImage.naturalWidth > 0) {
+        ctx.drawImage(stage6BgImage, 0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < canvas.width; i += 40) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i, canvas.height);
+            ctx.stroke();
+        }
+        for (let i = 0; i < canvas.height; i += 40) {
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(canvas.width, i);
+            ctx.stroke();
+        }
     }
 
     drawBricks();
@@ -1494,7 +1564,7 @@ function startGame(isNewGame = true) {
     if (isNewGame) {
         score = 0;
         lives = 3;
-        currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : 1;
+        currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : (BOSS5_TEST ? 5 : 1);
         updateStageUI(currentStage);
         bricks = createBricks();
     } else if (savedGameState) {
@@ -1931,7 +2001,7 @@ function updateExitButton() {
 }
 
 async function doExit() {
-    if (STAGE6_ONLY) return;
+    if (STAGE6_ONLY || BOSS5_TEST) return;
     try {
         if (isFullscreen()) {
             const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
@@ -2087,7 +2157,7 @@ document.querySelectorAll('#resetMyRankingBtn, #resetMyRankingBtnWin').forEach(b
 document.querySelectorAll('#resetAllRankingBtn, #resetAllRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetAllRanking); });
 
 async function refreshAccountList(selectAccountName) {
-    if (STAGE6_ONLY) return;
+    if (STAGE6_ONLY || BOSS5_TEST) return;
     const statusEl = document.getElementById('loginConnectionStatus');
     try {
         const status = await isOnlineStorageAvailable();
@@ -2436,7 +2506,7 @@ async function handleFindPassword() {
 }
 
 function setupLoginHandlers() {
-    if (STAGE6_ONLY) return;
+    if (STAGE6_ONLY || BOSS5_TEST) return;
     const passwordInput = document.getElementById('passwordInput');
     if (passwordInput) passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
     const createAccountCancelBtn = document.getElementById('createAccountCancelBtn');
@@ -2551,16 +2621,16 @@ async function init() {
     updateFullscreenButton();
     if (isMobile() && isLandscape()) applyMobileLandscapeDimensions();
     applyOptions();
-    if (STAGE6_ONLY || BOSS6_TEST) {
-        currentStage = 6;
-        currentAccount = BOSS6_TEST ? 'boss6_test' : 'stage6';
+    if (STAGE6_ONLY || BOSS6_TEST || BOSS5_TEST) {
+        currentStage = BOSS5_TEST ? 5 : 6;
+        currentAccount = BOSS5_TEST ? 'boss5_test' : (BOSS6_TEST ? 'boss6_test' : 'stage6');
         bricks = createBricks();
         paddle.x = (canvas.width - paddle.width) / 2;
         paddle.y = canvas.height - 40;
         balls = [{ x: canvas.width / 2, y: paddle.y - BALL_RADIUS - 5, dx: 0, dy: 0, radius: BALL_RADIUS }];
         ballLaunched = false;
         mouseX = canvas.width / 2;
-        updateStageUI(6);
+        updateStageUI(currentStage);
         document.getElementById('startOverlay')?.classList.remove('hidden');
         const loginEl = document.getElementById('loginOverlay');
         if (loginEl) loginEl.classList.add('hidden');
