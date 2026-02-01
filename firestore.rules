@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 게임 데이터(계정, 점수) - 인증 없이 읽기/쓰기 허용
+    match /game/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

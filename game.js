@@ -1,24 +1,9 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Firebase 설정
-const firebaseConfig = {
-    apiKey: "AIzaSyC3tZAWCkmrNccGhLgWUPciDbPvgWj2gdY",
-    authDomain: "breakbrock-young.firebaseapp.com",
-    projectId: "breakbrock-young",
-    storageBucket: "breakbrock-young.firebasestorage.app",
-    messagingSenderId: "193113416471",
-    appId: "1:193113416471:web:4591f360f69f8e5b5f4d52",
-    measurementId: "G-XMSKEQGP0S"
-};
-let firebaseApp = null;
-let firestoreDb = null;
-try {
-    firebaseApp = firebase.initializeApp(firebaseConfig);
-    firestoreDb = firebase.firestore();
-} catch (e) {
-    console.warn('Firebase 초기화 실패:', e);
-}
+// Firebase (firebase.js 모듈에서 초기화됨)
+let firebaseApp = window.firebaseApp || null;
+let firestoreDb = window.firestoreDb || null;
 
 const STAGE6_ONLY = (typeof window !== 'undefined' && window.STAGE6_ONLY) || false;
 const BOSS6_TEST = (typeof window !== 'undefined' && window.BOSS6_TEST) || false;
@@ -1534,37 +1519,38 @@ function stopBGM() {
 
 const MAX_RANKING = 20;
 const RANKING_DISPLAY_COUNT = 20;
-const ACCOUNTS_KEY = 'brickBreakerAccounts';
-const RANKING_KEY = 'brickBreakerRanking';
-const FIRESTORE_TIMEOUT_MS = 8000;
+const FIRESTORE_TIMEOUT_MS = 15000;
 
 function isOnline() {
     return typeof navigator !== 'undefined' && navigator.onLine;
 }
 
-function getAccountsFromLocal() {
+async function isOnlineStorageAvailable() {
+    if (!firestoreDb || typeof window.firestoreGetDoc !== 'function') {
+        return { ok: false, error: '저장소 초기화에 실패했습니다. 페이지를 새로고침해 주세요.' };
+    }
+    if (window.location.protocol === 'file:') {
+        return { ok: false, error: 'file://에서는 저장소를 사용할 수 없습니다. http://localhost 등 웹 서버로 실행해 주세요.' };
+    }
     try {
-        const raw = localStorage.getItem(ACCOUNTS_KEY) || '{}';
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-        return {};
-    } catch (e) { return {}; }
-}
-
-function getRankingFromLocal() {
-    try {
-        const raw = localStorage.getItem(RANKING_KEY) || '[]';
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch (e) { return []; }
-}
-
-function setAccountsToLocal(accounts) {
-    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); } catch (e) {}
-}
-
-function setRankingToLocal(ranking) {
-    try { localStorage.setItem(RANKING_KEY, JSON.stringify(ranking)); } catch (e) {}
+        await withTimeout((window.firestoreGetDoc || (() => firestoreDb.collection('game').doc('data').get()))(), FIRESTORE_TIMEOUT_MS);
+        return { ok: true };
+    } catch (e) {
+        const msg = (e?.message || String(e)).toLowerCase();
+        const code = (e?.code || '').toLowerCase();
+        let userMsg = '온라인 저장소에 연결할 수 없습니다.';
+        if (msg.includes('permission') || code === 'permission-denied') {
+            userMsg = 'Firestore 보안 규칙이 접근을 차단합니다. Firebase 콘솔 → Firestore → 규칙에서 game 컬렉션 읽기/쓰기를 허용해 주세요.';
+        } else if (msg.includes('타임아웃') || msg.includes('timeout')) {
+            userMsg = '연결 시간이 초과되었습니다. 네트워크를 확인한 후 다시 시도해 주세요.';
+        } else if (msg.includes('unavailable') || code === 'unavailable') {
+            userMsg = 'Firestore 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+        } else if (msg.includes('not-found') || code === 'not-found') {
+            userMsg = 'Firestore가 프로젝트에 활성화되지 않았을 수 있습니다. Firebase 콘솔에서 Firestore를 생성해 주세요.';
+        }
+        console.warn('Firestore 연결 오류:', e?.code, e?.message, e);
+        return { ok: false, error: userMsg };
+    }
 }
 
 function withTimeout(promise, ms) {
@@ -1574,77 +1560,25 @@ function withTimeout(promise, ms) {
     ]);
 }
 
-async function syncLocalToFirestore() {
-    if (!firestoreDb || !isOnline()) return;
-    try {
-        const localAccounts = getAccountsFromLocal();
-        const localRanking = getRankingFromLocal();
-        let fireAccounts = {};
-        let fireRanking = [];
-        try {
-            const docSnap = await firestoreDb.collection('game').doc('data').get();
-            const data = docSnap.exists ? docSnap.data() : {};
-            fireAccounts = (data.accounts && typeof data.accounts === 'object') ? data.accounts : {};
-            fireRanking = Array.isArray(data.ranking) ? data.ranking : [];
-        } catch (e) { /* Firestore 읽기 실패 */ }
-        const mergedAccounts = { ...fireAccounts, ...localAccounts };
-        const mergedRanking = [...fireRanking];
-        localRanking.forEach(r => {
-            if (!mergedRanking.some(m => m.account === r.account && m.score === r.score && m.date === r.date)) {
-                mergedRanking.push(r);
-            }
-        });
-        mergedRanking.sort((a, b) => (b.score || 0) - (a.score || 0));
-        const trimmedRanking = mergedRanking.slice(0, MAX_RANKING);
-        await firestoreDb.collection('game').doc('data').set({ accounts: mergedAccounts, ranking: trimmedRanking }, { merge: true });
-        setAccountsToLocal(mergedAccounts);
-        setRankingToLocal(trimmedRanking);
-    } catch (e) {
-        console.warn('syncLocalToFirestore 오류:', e);
-    }
-}
-
 async function getAccounts() {
-    if (firestoreDb && isOnline()) {
-        try {
-            const docSnap = await firestoreDb.collection('game').doc('data').get();
-            const data = docSnap.exists ? docSnap.data() : {};
-            const accounts = data.accounts;
-            if (accounts && typeof accounts === 'object' && !Array.isArray(accounts)) {
-                setAccountsToLocal(accounts);
-                return accounts;
-            }
-        } catch (e) {
-            console.warn('getAccounts Firestore 오류:', e);
-        }
-    }
-    return getAccountsFromLocal();
+    if (!firestoreDb) throw new Error('온라인 저장소에 연결할 수 없습니다.');
+    const docSnap = await withTimeout(window.firestoreGetDoc(), FIRESTORE_TIMEOUT_MS);
+    const data = (docSnap?.exists ? docSnap.data() : null) || {};
+    const accounts = data.accounts;
+    if (accounts && typeof accounts === 'object' && !Array.isArray(accounts)) return accounts;
+    return {};
 }
 
 async function saveAccount(name, data) {
     const accounts = await getAccounts();
     accounts[name] = data;
-    setAccountsToLocal(accounts);
-    if (firestoreDb && isOnline()) {
-        try {
-            await firestoreDb.collection('game').doc('data').set({ accounts }, { merge: true });
-        } catch (e) {
-            console.warn('saveAccount Firestore 오류:', e);
-        }
-    }
+    await withTimeout(window.firestoreSetDoc({ accounts }, { merge: true }), FIRESTORE_TIMEOUT_MS);
 }
 
 async function deleteAccountData(name) {
     const accounts = await getAccounts();
     delete accounts[name];
-    setAccountsToLocal(accounts);
-    if (firestoreDb && isOnline()) {
-        try {
-            await firestoreDb.collection('game').doc('data').set({ accounts }, { merge: true });
-        } catch (e) {
-            console.warn('deleteAccountData Firestore 오류:', e);
-        }
-    }
+    await withTimeout(window.firestoreSetDoc({ accounts }, { merge: true }), FIRESTORE_TIMEOUT_MS);
 }
 
 async function getAccount(name) {
@@ -1701,30 +1635,15 @@ async function saveOptionsToAccount() {
 }
 
 async function getRanking() {
-    if (firestoreDb && isOnline()) {
-        try {
-            const docSnap = await withTimeout(firestoreDb.collection('game').doc('data').get(), FIRESTORE_TIMEOUT_MS);
-            const data = docSnap.exists ? docSnap.data() : {};
-            const ranking = data.ranking;
-            if (Array.isArray(ranking)) {
-                setRankingToLocal(ranking);
-                return ranking;
-            }
-        } catch (e) {
-            console.warn('getRanking Firestore 오류:', e);
-        }
-    }
-    return getRankingFromLocal();
+    if (!firestoreDb) throw new Error('온라인 저장소에 연결할 수 없습니다.');
+    const docSnap = await withTimeout(window.firestoreGetDoc(), FIRESTORE_TIMEOUT_MS);
+    const data = docSnap.exists ? docSnap.data() : {};
+    const ranking = data.ranking;
+    return Array.isArray(ranking) ? ranking : [];
 }
 
 async function saveToRanking(score) {
-    let ranking;
-    try {
-        ranking = await getRanking();
-    } catch (e) {
-        console.warn('saveToRanking getRanking 오류:', e);
-        ranking = getRankingFromLocal();
-    }
+    const ranking = await getRanking();
     ranking.push({
         account: currentAccount || '게스트',
         score,
@@ -1733,27 +1652,13 @@ async function saveToRanking(score) {
     });
     ranking.sort((a, b) => b.score - a.score);
     const trimmed = ranking.slice(0, MAX_RANKING);
-    setRankingToLocal(trimmed);
-    if (firestoreDb && isOnline()) {
-        try {
-            await withTimeout(firestoreDb.collection('game').doc('data').set({ ranking: trimmed }, { merge: true }), FIRESTORE_TIMEOUT_MS);
-        } catch (e) {
-            console.warn('saveToRanking Firestore 오류:', e);
-        }
-    }
+    await withTimeout(window.firestoreSetDoc({ ranking: trimmed }, { merge: true }), FIRESTORE_TIMEOUT_MS);
     const rank = trimmed.findIndex(r => r.score === score && r.account === (currentAccount || '게스트')) + 1;
     return rank > 0 ? rank : 1;
 }
 
 async function clearRanking() {
-    setRankingToLocal([]);
-    if (firestoreDb && isOnline()) {
-        try {
-            await firestoreDb.collection('game').doc('data').set({ ranking: [] }, { merge: true });
-        } catch (e) {
-            console.warn('clearRanking Firestore 오류:', e);
-        }
-    }
+    await withTimeout(window.firestoreSetDoc({ ranking: [] }, { merge: true }), FIRESTORE_TIMEOUT_MS);
 }
 
 const ADMIN_PASSWORD = 'admin';
@@ -1765,9 +1670,13 @@ async function handleResetAllRanking() {
         alert('비밀번호가 올바르지 않습니다.');
         return;
     }
-    await clearRanking();
-    await resetRankingUI();
-    alert('전체 점수가 초기화되었습니다.');
+    try {
+        await clearRanking();
+        await resetRankingUI();
+        alert('전체 점수가 초기화되었습니다.');
+    } catch (e) {
+        alert('점수 초기화에 실패했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
+    }
 }
 
 async function handleResetMyRanking() {
@@ -1776,17 +1685,14 @@ async function handleResetMyRanking() {
         return;
     }
     if (!confirm(currentAccount + ' 계정의 점수만 삭제하시겠습니까?')) return;
-    const ranking = (await getRanking()).filter(r => (r.account || '게스트') !== currentAccount);
-    setRankingToLocal(ranking);
-    if (firestoreDb && isOnline()) {
-        try {
-            await firestoreDb.collection('game').doc('data').set({ ranking }, { merge: true });
-        } catch (e) {
-            console.warn('handleResetMyRanking 오류:', e);
-        }
+    try {
+        const ranking = (await getRanking()).filter(r => (r.account || '게스트') !== currentAccount);
+        await withTimeout(window.firestoreSetDoc({ ranking }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+        await resetRankingUI();
+        alert('내 점수가 초기화되었습니다.');
+    } catch (e) {
+        alert('점수 초기화에 실패했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
     }
-    await resetRankingUI();
-    alert('내 점수가 초기화되었습니다.');
 }
 
 function formatRankingDate(isoStr) {
@@ -1804,8 +1710,8 @@ async function renderRanking(elementId) {
     try {
         ranking = await getRanking();
     } catch (e) {
-        console.warn('renderRanking getRanking 오류:', e);
-        ranking = getRankingFromLocal();
+        el.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">순위를 불러올 수 없습니다. 인터넷 연결을 확인해 주세요.</p>';
+        return;
     }
     if (!ranking || !ranking.length) {
         el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
@@ -1851,18 +1757,8 @@ function gameOver() {
             await renderRanking('rankingDisplay');
         } catch (e) {
             console.warn('gameOver 점수 처리 오류:', e);
-            const ranking = getRankingFromLocal();
             const el = document.getElementById('rankingDisplay');
-            if (el) {
-                if (!ranking.length) {
-                    el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록을 불러올 수 없습니다</p>';
-                } else {
-                    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
-                        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
-                    ).join('');
-                    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
-                }
-            }
+            if (el) el.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
         }
     })();
 }
@@ -1892,18 +1788,8 @@ function winGame() {
             await renderRanking('winRankingDisplay');
         } catch (e) {
             console.warn('winGame 점수 처리 오류:', e);
-            const ranking = getRankingFromLocal();
             const el = document.getElementById('winRankingDisplay');
-            if (el) {
-                if (!ranking.length) {
-                    el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록을 불러올 수 없습니다</p>';
-                } else {
-                    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
-                        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
-                    ).join('');
-                    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
-                }
-            }
+            if (el) el.innerHTML = '<h3>🏆 점수 순위</h3><p class="ranking-error">점수 저장 및 순위 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.</p>';
         }
     })();
 }
@@ -2096,7 +1982,14 @@ document.querySelectorAll('#resetAllRankingBtn, #resetAllRankingBtnWin').forEach
 
 async function refreshAccountList(selectAccountName) {
     if (STAGE6_ONLY) return;
+    const statusEl = document.getElementById('loginConnectionStatus');
     try {
+        const status = await isOnlineStorageAvailable();
+        if (!status.ok) {
+            if (statusEl) { statusEl.textContent = status.error || '인터넷 연결을 확인해 주세요.'; statusEl.style.display = 'block'; statusEl.className = 'login-status error'; }
+            return;
+        }
+        if (statusEl) statusEl.style.display = 'none';
         const accountInput = document.getElementById('accountSelect');
         const accountsObj = await getAccounts();
         const accounts = Object.keys(accountsObj).filter(k => accountsObj[k] && typeof accountsObj[k] === 'object').sort();
@@ -2104,18 +1997,30 @@ async function refreshAccountList(selectAccountName) {
             if (selectAccountName && accounts.indexOf(selectAccountName) >= 0) accountInput.value = selectAccountName;
         }
     } catch (e) {
+        if (statusEl) { statusEl.textContent = '온라인 저장소에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.'; statusEl.style.display = 'block'; statusEl.className = 'login-status error'; }
         console.error('refreshAccountList 오류:', e);
     }
 }
 
 async function doLogin() {
+    const status = await isOnlineStorageAvailable();
+    if (!status.ok) {
+        alert(status.error || '온라인 저장소에 연결할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');
+        return;
+    }
     const name = (document.getElementById('accountSelect')?.value || '').trim();
     const password = (document.getElementById('passwordInput')?.value || '').trim();
     if (!name) {
         alert('계정 아이디를 입력하세요.');
         return;
     }
-    const acc = await getAccount(name);
+    let acc;
+    try {
+        acc = await getAccount(name);
+    } catch (e) {
+        alert('계정 정보를 불러올 수 없습니다. ' + (e.message || ''));
+        return;
+    }
     if (!acc || acc.password !== password) {
         alert('비밀번호가 올바르지 않습니다.');
         return;
@@ -2172,16 +2077,21 @@ function handleDeleteAccount() {
         return;
     }
     showPasswordPrompt('계정 삭제', name + ' 계정의 비밀번호를 입력하세요. 삭제 후 복구할 수 없습니다.', async (pwd) => {
-        const acc = await getAccount(name);
-        if (!acc || acc.password !== pwd) {
-            alert('비밀번호가 올바르지 않습니다.');
+        try {
+            const acc = await getAccount(name);
+            if (!acc || acc.password !== pwd) {
+                alert('비밀번호가 올바르지 않습니다.');
+                return false;
+            }
+            await deleteAccountData(name);
+            await refreshAccountList();
+            if (currentAccount === name) currentAccount = '';
+            alert('계정이 삭제되었습니다.');
+            return true;
+        } catch (e) {
+            alert('계정 삭제 중 오류가 발생했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
             return false;
         }
-        await deleteAccountData(name);
-        await refreshAccountList();
-        if (currentAccount === name) currentAccount = '';
-        alert('계정이 삭제되었습니다.');
-        return true;
     });
 }
 
@@ -2261,10 +2171,11 @@ function updateOptionsButtonVisibility() {
     updateExitButton();
 }
 
-function showEditAccountModal() {
+async function showEditAccountModal() {
     if (!currentAccount) return;
-    const acc = getAccount(currentAccount);
-    if (!acc) return;
+    try {
+        const acc = await getAccount(currentAccount);
+        if (!acc) return;
     document.getElementById('editAccountNameDisplay').textContent = '계정: ' + currentAccount;
     document.getElementById('editCurrentPassword').value = '';
     document.getElementById('editNewPassword').value = '';
@@ -2279,6 +2190,9 @@ function showEditAccountModal() {
     document.getElementById('editNewPasswordConfirm').type = 'password';
     document.getElementById('editAccountModal').classList.remove('hidden');
     updateOptionsButtonVisibility();
+    } catch (e) {
+        alert('계정 정보를 불러올 수 없습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
+    }
 }
 
 function hideEditAccountModal() {
@@ -2313,24 +2227,33 @@ async function handleEditAccount() {
     const hint = (document.getElementById('editHint')?.value || '').trim();
     const answer = (document.getElementById('editAnswer')?.value || '').trim();
     if (!currentPwd) { alert('현재 비밀번호를 입력하세요.'); return; }
-    const acc = await getAccount(currentAccount);
-    if (!acc || acc.password !== currentPwd) {
-        alert('현재 비밀번호가 올바르지 않습니다.');
-        return;
+    try {
+        const acc = await getAccount(currentAccount);
+        if (!acc || acc.password !== currentPwd) {
+            alert('현재 비밀번호가 올바르지 않습니다.');
+            return;
+        }
+        if (newPwd && newPwd !== newPwdConfirm) {
+            alert('새 비밀번호가 일치하지 않습니다.');
+            return;
+        }
+        if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
+        const finalPassword = newPwd || currentPwd;
+        await saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer });
+        hideEditAccountModal();
+        alert('계정 정보가 수정되었습니다.');
+    } catch (e) {
+        alert('계정 정보 수정에 실패했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
     }
-    if (newPwd && newPwd !== newPwdConfirm) {
-        alert('새 비밀번호가 일치하지 않습니다.');
-        return;
-    }
-    if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
-    const finalPassword = newPwd || currentPwd;
-    await saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer });
-    hideEditAccountModal();
-    alert('계정 정보가 수정되었습니다.');
 }
 
 async function handleCreateAccount() {
     try {
+        const status = await isOnlineStorageAvailable();
+        if (!status.ok) {
+            alert(status.error || '온라인 저장소에 연결할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');
+            return;
+        }
         const name = (document.getElementById('newAccountName')?.value || '').trim();
         const pwd = (document.getElementById('newPassword')?.value || '').trim();
         const pwdConfirm = (document.getElementById('newPasswordConfirm')?.value || '').trim();
@@ -2349,7 +2272,7 @@ async function handleCreateAccount() {
         alert('계정이 생성되었습니다.');
     } catch (e) {
         console.error('계정 생성 오류:', e);
-        alert('계정 생성 중 오류가 발생했습니다. 브라우저에서 로컬 저장소가 활성화되어 있는지 확인해 주세요.');
+        alert('계정 생성 중 오류가 발생했습니다. ' + (e.message || '인터넷 연결을 확인해 주세요.'));
     }
 }
 
@@ -2419,18 +2342,6 @@ function setupLoginHandlers() {
     if (STAGE6_ONLY) return;
     const passwordInput = document.getElementById('passwordInput');
     if (passwordInput) passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
-    document.addEventListener('click', (e) => {
-        if (e.target.closest && e.target.closest('#createAccountBtn')) { e.preventDefault(); showCreateAccountModal(); }
-        if (e.target.closest && e.target.closest('#createAccountSubmitBtn')) { e.preventDefault(); handleCreateAccount(); }
-        if (e.target.closest && e.target.closest('#deleteAccountBtn')) { e.preventDefault(); handleDeleteAccount(); }
-        if (e.target.closest && e.target.closest('#findPasswordBtn')) { e.preventDefault(); showFindPasswordModal(); }
-    });
-    const deleteAccountBtn = document.getElementById('deleteAccountBtn');
-    if (deleteAccountBtn) deleteAccountBtn.addEventListener('click', handleDeleteAccount);
-    const findPasswordBtn = document.getElementById('findPasswordBtn');
-    if (findPasswordBtn) findPasswordBtn.addEventListener('click', showFindPasswordModal);
-    const createAccountSubmitBtn = document.getElementById('createAccountSubmitBtn');
-    if (createAccountSubmitBtn) createAccountSubmitBtn.addEventListener('click', handleCreateAccount);
     const createAccountCancelBtn = document.getElementById('createAccountCancelBtn');
     if (createAccountCancelBtn) createAccountCancelBtn.addEventListener('click', hideCreateAccountModal);
     const toggleLoginPassword = document.getElementById('toggleLoginPassword');
@@ -2543,7 +2454,6 @@ async function init() {
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
     try {
-        await syncLocalToFirestore();
         await refreshAccountList();
     } catch (e) {
         console.warn('초기 데이터 로드 오류:', e);
@@ -2555,14 +2465,13 @@ async function init() {
 }
 
 window.doLogin = doLogin;
-window.addEventListener('online', () => { syncLocalToFirestore(); });
-
-document.addEventListener('click', (e) => {
-    if (e.target && e.target.id === 'loginBtn') {
-        e.preventDefault();
-        doLogin();
-    }
-});
+window.showCreateAccountModal = showCreateAccountModal;
+window.showFindPasswordModal = showFindPasswordModal;
+window.handleDeleteAccount = handleDeleteAccount;
+window.handleCreateAccount = handleCreateAccount;
+window.hideCreateAccountModal = hideCreateAccountModal;
+window.handleFindPassword = handleFindPassword;
+window.addEventListener('online', () => { refreshAccountList(); });
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
