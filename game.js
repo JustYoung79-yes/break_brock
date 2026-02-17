@@ -69,11 +69,24 @@ const BALL_SKINS = [
     { id: 'rainbow', name: '무지개', emoji: '🌈', colors: null },
 ];
 
-// UI 동기화 (메인+사이드바)
-function updateStageUI(v) { document.querySelectorAll('.stageVal').forEach(el => { el.textContent = v; }); }
-function updateScoreUI(v) { document.querySelectorAll('.scoreVal').forEach(el => { el.textContent = v; }); }
-function updateLivesUI(v) { document.querySelectorAll('.livesVal').forEach(el => { el.textContent = v; }); }
-function updateCoinsUI(v) { document.querySelectorAll('.coinVal').forEach(el => { el.textContent = v; }); }
+// UI 동기화 (메인+사이드바) - DOM 캐시로 querySelectorAll 반복 호출 감소
+let _uiStage, _uiScore, _uiLives, _uiCoins;
+function updateStageUI(v) {
+    if (!_uiStage) _uiStage = document.querySelectorAll('.stageVal');
+    _uiStage.forEach(el => { el.textContent = v; });
+}
+function updateScoreUI(v) {
+    if (!_uiScore) _uiScore = document.querySelectorAll('.scoreVal');
+    _uiScore.forEach(el => { el.textContent = v; });
+}
+function updateLivesUI(v) {
+    if (!_uiLives) _uiLives = document.querySelectorAll('.livesVal');
+    _uiLives.forEach(el => { el.textContent = v; });
+}
+function updateCoinsUI(v) {
+    if (!_uiCoins) _uiCoins = document.querySelectorAll('.coinVal');
+    _uiCoins.forEach(el => { el.textContent = v; });
+}
 
 // 모바일 감지
 function isMobile() {
@@ -333,73 +346,25 @@ function isBrickInLayout(stage, row, col, rows, cols) {
     }
 }
 
+function createBossBrickOnly(stageKey, width, height) {
+    const cfg = BOSS_CONFIG[stageKey] || BOSS_CONFIG[1];
+    const w = width, h = height;
+    const brick = {
+        x: (options.canvasWidth - w) / 2,
+        y: BRICK_OFFSET_TOP + 80,
+        width: w, height: h,
+        visible: true, hp: cfg.hp, maxHp: cfg.hp,
+        isItem: false, isNerf: false, itemType: null, isBoss: true,
+        radius: Math.min(w, h) / 2, bossBaseSize: Math.min(w, h),
+        bossVx: 0, bossVy: 0, bossShootTimer: 0
+    };
+    return [[brick]];
+}
+
 function createBricks() {
-    if (BOSS6_TEST) {
-        const cfg = BOSS_CONFIG[6] || BOSS_CONFIG[1];
-        const w = 200, h = 200;  // stage6 보스 크기
-        return [[{
-            x: (options.canvasWidth - w) / 2,
-            y: BRICK_OFFSET_TOP + 80,
-            width: w,
-            height: h,
-            visible: true,
-            hp: cfg.hp,
-            maxHp: cfg.hp,
-            isItem: false,
-            isNerf: false,
-            itemType: null,
-            isBoss: true,
-            radius: Math.min(w, h) / 2,
-            bossBaseSize: Math.min(w, h),
-            bossVx: 0,
-            bossVy: 0,
-            bossShootTimer: 0
-        }]];
-    }
-    if (BOSS4_TEST) {
-        const cfg = BOSS_CONFIG[4] || BOSS_CONFIG[1];
-        const w = 80, h = 80;
-        return [[{
-            x: (options.canvasWidth - w) / 2,
-            y: BRICK_OFFSET_TOP + 80,
-            width: w,
-            height: h,
-            visible: true,
-            hp: cfg.hp,
-            maxHp: cfg.hp,
-            isItem: false,
-            isNerf: false,
-            itemType: null,
-            isBoss: true,
-            radius: Math.min(w, h) / 2,
-            bossBaseSize: Math.min(w, h),
-            bossVx: 0,
-            bossVy: 0,
-            bossShootTimer: 0
-        }]];
-    }
-    if (BOSS5_TEST) {
-        const cfg = BOSS_CONFIG[5] || BOSS_CONFIG[1];
-        const w = 80, h = 80;
-        return [[{
-            x: (options.canvasWidth - w) / 2,
-            y: BRICK_OFFSET_TOP + 80,
-            width: w,
-            height: h,
-            visible: true,
-            hp: cfg.hp,
-            maxHp: cfg.hp,
-            isItem: false,
-            isNerf: false,
-            itemType: null,
-            isBoss: true,
-            radius: Math.min(w, h) / 2,
-            bossBaseSize: Math.min(w, h),
-            bossVx: 0,
-            bossVy: 0,
-            bossShootTimer: 0
-        }]];
-    }
+    if (BOSS6_TEST) return createBossBrickOnly(6, 200, 200);
+    if (BOSS4_TEST) return createBossBrickOnly(4, 80, 80);
+    if (BOSS5_TEST) return createBossBrickOnly(5, 80, 80);
     const config = STAGE_CONFIG[Math.min(currentStage - 1, STAGE_CONFIG.length - 1)];
     const rows = config.rows;
     const cols = config.cols;
@@ -3186,7 +3151,7 @@ document.getElementById('creatorLoadOthersBtn')?.addEventListener('click', async
     if (!modal || !listEl) return;
     listEl.innerHTML = '<p style="color:#b8b8ff;">불러오는 중...</p>';
     modal.classList.remove('hidden');
-        try {
+    try {
         const levels = await getCustomLevels();
         if (levels.length === 0) {
             listEl.innerHTML = '<p style="color:#b8b8ff;">저장된 레벨이 없습니다.</p>';
