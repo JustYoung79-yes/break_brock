@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="screen-orientation" content="landscape">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
-    <title>벽돌깨기 - 스테이지5 보스 테스트</title>
-    <script>window.BOSS5_TEST = true;</script>
+    <title>벽돌깨기 - 스테이지4 전용 테스트</title>
+    <script>window.STAGE4_ONLY = true;</script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Noto+Sans+KR:wght@400;700&display=swap');
         
@@ -332,6 +332,55 @@
             text-align: right;
         }
         
+        .shop-section {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px 0 10px;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.15);
+            border-radius: 12px;
+            border: 1px solid rgba(138, 43, 226, 0.4);
+        }
+        .shop-section h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            color: #e0e0ff;
+            margin-bottom: 12px;
+        }
+        .shop-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .shop-skin-btn {
+            width: 56px;
+            height: 56px;
+            border: 2px solid rgba(138, 43, 226, 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        .shop-skin-btn:hover {
+            border-color: #b8b8ff;
+            transform: scale(1.05);
+        }
+        .shop-skin-btn.selected {
+            border-color: #48dbfb;
+            box-shadow: 0 0 12px rgba(72, 219, 251, 0.6);
+        }
+        
+        .profile-draw-section { margin: 12px 0; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; }
+        .profile-draw-section p { margin-bottom: 8px; font-size: 0.9rem; }
+        .profile-canvas-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .profile-canvas-wrap canvas { border: 2px solid rgba(138, 43, 226, 0.5); border-radius: 8px; cursor: crosshair; background: #fff; image-rendering: pixelated; }
+        .profile-color-btn { width: 24px; height: 24px; border: 2px solid #fff; border-radius: 4px; cursor: pointer; }
+        .profile-color-btn.active { border-color: #48dbfb; box-shadow: 0 0 8px rgba(72,219,251,0.8); }
+        .ranking-table .profile-img { width: 28px; height: 28px; vertical-align: middle; border-radius: 4px; margin-right: 6px; }
+        
         .header-buttons {
             display: flex;
             align-items: center;
@@ -430,7 +479,6 @@
             to { transform: scale(1.1); }
         }
         
-        /* 회전 안내 오버레이: 전체 뷰포트 고정 (세로 모드에서 잘림 방지) */
         #rotateOverlay {
             position: fixed !important;
             top: 0 !important;
@@ -450,7 +498,6 @@
             #rotateOverlay p { font-size: 0.9rem; margin-bottom: 10px; }
             #rotateOverlay p:last-of-type { font-size: 2rem; margin: 12px 0; }
         }
-        /* 모바일 가로 모드: 게임창 세로 꽉, UI 오른쪽 패널 */
         @media (orientation: landscape) and (max-width: 900px) {
             body { padding: 4px; overflow: hidden; }
             .game-container {
@@ -479,7 +526,6 @@
             .game-sidebar .header-btns { flex-direction: column; }
             .game-main canvas { flex: 1; min-height: 0; width: 100% !important; height: 100% !important; max-height: 100%; touch-action: none; }
         }
-        /* 모바일 세로/짧은 화면 */
         @media (max-height: 500px) {
             body { padding: 8px; overflow-y: auto; overflow-x: hidden; }
             .game-container { padding: 10px; max-width: 100%; }
@@ -504,7 +550,7 @@
         <div class="game-main" style="position:relative;">
             <button type="button" id="bulletFireBtn" style="display:none;">🔫 발사</button>
             <div class="header-buttons header-top">
-                <h1>🎮 벽돌깨기 - 스테이지5 보스 테스트</h1>
+                <h1>🎮 벽돌깨기 - 스테이지4 전용 테스트</h1>
                 <div class="header-btns">
                     <button class="btn btn-small" id="exitBtn" title="종료" style="display:none;">✕</button>
                     <button class="btn btn-small" id="fullscreenBtn" title="전체화면" style="display:none;">⛶</button>
@@ -521,7 +567,7 @@
         </div>
         <div class="game-sidebar">
             <div class="header-buttons">
-                <h1>🎮 스테이지5 보스</h1>
+                <h1>🎮 스테이지4 전용</h1>
                 <div class="header-btns">
                     <button class="btn btn-small" id="exitBtnSide" title="종료" style="display:none;">✕</button>
                     <button class="btn btn-small" id="fullscreenBtnSide" title="전체화면" style="display:none;">⛶</button>
@@ -569,8 +615,8 @@
         </div>
         
         <div id="startOverlay" class="overlay hidden">
-            <h2>스테이지5 보스 테스트</h2>
-            <p>스테이지5 보스(스테이지5보스.png)를 테스트합니다. <span id="currentAccountDisplay"></span></p>
+            <h2>스테이지4 전용 테스트</h2>
+            <p>스테이지 4만 플레이합니다. 클리어 시 테스트가 종료됩니다. <span id="currentAccountDisplay"></span></p>
             <div class="overlay-buttons" style="margin-bottom:15px;">
                 <button class="btn" id="startBtn">게임 시작</button>
                 <button class="btn btn-small btn-outline" id="editAccountBtn">계정 정보 수정</button>
@@ -621,7 +667,8 @@
         <div id="editAccountModal" class="overlay hidden" style="z-index:25;">
             <h2>계정 정보 수정</h2>
             <p id="editAccountNameDisplay" style="margin:8px 0; color:#b8b8ff;"></p>
-            <input type="text" id="editProfile" placeholder="프로필 (순위에 표시됨)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="editProfile" placeholder="프로필 이름" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+            <div class="profile-draw-section"><p>프로필 그림</p><div class="profile-canvas-wrap"><canvas id="editProfileCanvas" width="64" height="64" style="width:96px;height:96px;"></canvas><div><div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#b8b8ff; margin-bottom:6px;"><span>굵기</span><input type="range" id="editProfileBrushSize" min="1" max="12" value="3" style="width:70px;"><span id="editProfileBrushSizeVal">3</span></div><div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px;"><button type="button" class="profile-color-btn active" data-color="#000000"></button><button type="button" class="profile-color-btn" data-color="#ffffff" style="border:1px solid #666;"></button><button type="button" class="profile-color-btn" data-color="#ff0000"></button><button type="button" class="profile-color-btn" data-color="#0000ff"></button><button type="button" class="profile-color-btn" data-color="#ffff00"></button></div><button type="button" class="btn btn-small btn-outline" id="editProfileClearBtn">지우기</button></div></div></div>
             <div class="input-with-toggle">
                 <input type="password" id="editCurrentPassword" placeholder="현재 비밀번호" maxlength="30" class="account-input" style="margin:8px 0;">
                 <button type="button" class="btn-toggle-pw" id="toggleEditCurrentPassword" title="비밀번호 보기">👁</button>
@@ -691,6 +738,17 @@
                     <option value="large">큼 (960×720)</option>
                 </select>
             </div>
+            <div class="shop-section">
+                <h3>🛒 꾸미기 상점</h3>
+                <div style="margin-bottom:12px;">
+                    <span style="font-size:0.9rem; color:#b8b8ff;">판 스킨</span>
+                    <div class="shop-grid" id="paddleSkinGrid"></div>
+                </div>
+                <div>
+                    <span style="font-size:0.9rem; color:#b8b8ff;">공 스킨</span>
+                    <div class="shop-grid" id="ballSkinGrid"></div>
+                </div>
+            </div>
             <div class="options-footer">
                 <button type="button" class="btn" id="optionsCloseBtn" onclick="typeof closeOptions==='function'&&closeOptions()">닫기</button>
                 <button type="button" id="storageAdminBtn" title="온라인 저장소 관리"></button>
@@ -698,7 +756,6 @@
         </div>
     </div>
 
-    <!-- 온라인 저장소 관리 모달 -->
     <div id="storageAdminModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
         <h2>온라인 저장소 관리</h2>
         <div class="overlay-buttons" style="margin-top:15px; flex-direction:column; gap:12px;">
@@ -708,11 +765,11 @@
         </div>
     </div>
 
-    <!-- 계정 모달: body 직계 자식으로 분리 (클릭/표시 문제 방지) -->
     <div id="createAccountModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
         <h2>계정 새로 만들기</h2>
         <input type="text" id="newAccountName" placeholder="계정 아이디" maxlength="20" class="account-input" style="margin:8px 0;">
-        <input type="text" id="newProfile" placeholder="프로필 (순위에 표시됨, 예: 닉네임)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+        <input type="text" id="newProfile" placeholder="프로필 이름 (순위에 표시됨)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+        <div class="profile-draw-section"><p>프로필 그림 그리기</p><div class="profile-canvas-wrap"><canvas id="newProfileCanvas" width="64" height="64" style="width:96px;height:96px;"></canvas><div><div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#b8b8ff; margin-bottom:6px;"><span>굵기</span><input type="range" id="newProfileBrushSize" min="1" max="12" value="3" style="width:70px;"><span id="newProfileBrushSizeVal">3</span></div><div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px;"><button type="button" class="profile-color-btn active" data-color="#000000"></button><button type="button" class="profile-color-btn" data-color="#ffffff" style="border:1px solid #666;"></button><button type="button" class="profile-color-btn" data-color="#ff0000"></button><button type="button" class="profile-color-btn" data-color="#0000ff"></button><button type="button" class="profile-color-btn" data-color="#ffff00"></button></div><button type="button" class="btn btn-small btn-outline" id="newProfileClearBtn">지우기</button></div></div></div>
         <div class="input-with-toggle">
             <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
             <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>

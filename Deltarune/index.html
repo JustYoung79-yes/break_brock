@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DELTARUNE - 어두운 세계</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas" width="640" height="480"></canvas>
+    <div id="dialog-box" class="hidden">
+      <div id="dialog-text"></div>
+      <div id="dialog-next">▼</div>
+    </div>
+    <div id="battle-ui" class="hidden">
+      <div id="battle-box">
+        <div id="soul"></div>
+      </div>
+      <div id="battle-options">
+        <button data-action="fight">FIGHT</button>
+        <button data-action="act">ACT</button>
+        <button data-action="item">ITEM</button>
+        <button data-action="spare">SPARE</button>
+      </div>
+      <div id="battle-hp">
+        <span id="hp-label">HP</span>
+        <div id="hp-bar"><div id="hp-fill"></div></div>
+        <span id="hp-value">20/20</span>
+      </div>
+    </div>
+    <div id="title-screen">
+      <h1>DELTARUNE</h1>
+      <p class="subtitle">어두운 세계</p>
+      <p id="start-prompt">아무 키나 누르세요</p>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>

@@ -8,6 +8,8 @@ let firestoreDb = window.firestoreDb || null;
 const STAGE6_ONLY = (typeof window !== 'undefined' && window.STAGE6_ONLY) || false;
 const BOSS6_TEST = (typeof window !== 'undefined' && window.BOSS6_TEST) || false;
 const BOSS5_TEST = (typeof window !== 'undefined' && window.BOSS5_TEST) || false;
+const BOSS4_TEST = (typeof window !== 'undefined' && window.BOSS4_TEST) || false;
+const STAGE4_ONLY = (typeof window !== 'undefined' && window.STAGE4_ONLY) || false;
 
 // 폴더 구조에 따른 경로 (GitHub Pages 등 서브경로 대응)
 const PATH_BASE = (function() {
@@ -45,12 +47,31 @@ let options = {
     brickCols: 10,
     canvasWidth: 800,
     canvasHeight: 600,
+    paddleSkin: 'default',
+    ballSkin: 'default',
 };
+
+// 꾸미기 상점 스킨 정의 (판: gradient 색상, 공: gradient 색상)
+const PADDLE_SKINS = [
+    { id: 'default', name: '검', emoji: '⚔️', colors: ['#667eea', '#764ba2'] },
+    { id: 'blue', name: '파랑', emoji: '🔵', colors: ['#48dbfb', '#0abde3'] },
+    { id: 'red', name: '빨강', emoji: '🔴', colors: ['#ff6b6b', '#ee5a5a'] },
+    { id: 'green', name: '초록', emoji: '🟢', colors: ['#1dd1a1', '#10ac84'] },
+    { id: 'gold', name: '골드', emoji: '⭐', colors: ['#ffd700', '#f9ca24'] },
+];
+const BALL_SKINS = [
+    { id: 'default', name: '기본', emoji: '⚪', colors: ['#ffffff', '#e0e0ff', '#9d9dff'] },
+    { id: 'blue', name: '파랑', emoji: '🔵', colors: ['#ffffff', '#48dbfb', '#0abde3'] },
+    { id: 'fire', name: '불꽃', emoji: '🔥', colors: ['#ffffff', '#ff6b6b', '#ff3838'] },
+    { id: 'ice', name: '얼음', emoji: '❄️', colors: ['#ffffff', '#74b9ff', '#0984e3'] },
+    { id: 'rainbow', name: '무지개', emoji: '🌈', colors: null },
+];
 
 // UI 동기화 (메인+사이드바)
 function updateStageUI(v) { document.querySelectorAll('.stageVal').forEach(el => { el.textContent = v; }); }
 function updateScoreUI(v) { document.querySelectorAll('.scoreVal').forEach(el => { el.textContent = v; }); }
 function updateLivesUI(v) { document.querySelectorAll('.livesVal').forEach(el => { el.textContent = v; }); }
+function updateCoinsUI(v) { document.querySelectorAll('.coinVal').forEach(el => { el.textContent = v; }); }
 
 // 모바일 감지
 function isMobile() {
@@ -143,12 +164,49 @@ let fallingItems = [];
 let balls = [];
 let bullets = [];
 let bossBullets = [];
+let bossShields = [];  // { bossBrick } - 보스 주변 방어막, 공으로 때려야 제거
+let damageNumbers = [];  // { x, y, value, until } - 보스 타격 시 표시되는 데미지 숫자
+let creatorMode = false;
+let creatorBricks = [];  // 만들기 모드용 벽돌 배열
+let creatorDragging = false;
+let creatorDragBrick = null;
+let creatorDragOffsetX = 0;
+let creatorDragOffsetY = 0;
+let creatorLoopId = null;
+let creatorDeleteMode = false;
 let hasBulletPower = false;
 let bulletAutoFireFrame = 0;
 const BULLET_AUTO_FIRE_INTERVAL = 12;
 let savedGameState = null;
 let currentAccount = '';
+const GUEST_ACCOUNT = '__guest__';
+function isGuestAccount() { return currentAccount === GUEST_ACCOUNT; }
 let bricksHitThisFrame = new Set();
+let bricksBrokenCount = 0;  // 14개마다 랜덤 보너스 (총알 13초 / 강화공 14초)
+let coins = 0;  // 벽돌당 2코인, 장비 구매에 사용
+let bossUpgrades = { ballSizeMult: 1, paddleSpeedMult: 1, explodeChance: 0, extraLife: 0 };  // 보스 처치 시 선택
+let minions = [];  // 스테이지5+ 부하몬스터
+let minionBullets = [];
+let awaitingBossUpgradeChoice = false;
+
+function showBossUpgradeChoice() {
+    awaitingBossUpgradeChoice = true;
+    gamePaused = true;
+    document.getElementById('bossUpgradeOverlay')?.classList.remove('hidden');
+}
+function applyBossUpgrade(choice) {
+    if (choice === 'ballSize') bossUpgrades.ballSizeMult *= 1.13;
+    else if (choice === 'paddleSpeed') bossUpgrades.paddleSpeedMult *= 1.12;
+    else if (choice === 'explode') bossUpgrades.explodeChance = 0.1;
+    else if (choice === 'extraLife') { lives++; updateLivesUI(lives); bossUpgrades.extraLife++; }
+    else if (choice === 'bulletDuration') { hasBulletPower = true; activeItems.push({ type: 'bullet', duration: 300 }); updateBulletFireButtonVisibility(); }
+    document.getElementById('bossUpgradeOverlay')?.classList.add('hidden');
+    awaitingBossUpgradeChoice = false;
+    gamePaused = false;
+    if (STAGE4_ONLY && currentStage === 4) endStage4OnlyTest();
+    else if (currentStage < TOTAL_STAGES) showStageClearAndNext();
+    else winGame();
+}
 
 // 패들
 const paddle = {
@@ -182,14 +240,14 @@ const HP_COLORS = {
     1: '#22c55e', 2: '#3b82f6', 3: '#ec4899', 4: '#8b5cf6'
 };
 
-// 스테이지별 보스 설정: { hp, movePattern: 'none'|'lr'|'free'|'curve', shootInterval: 0|180|300 }
+// 스테이지별 보스 설정: hp, movePattern, shootInterval, shieldInterval(프레임, 60fps기준)
 const BOSS_CONFIG = {
-    1: { hp: 1, movePattern: 'none', shootInterval: 0 },
-    2: { hp: 2, movePattern: 'none', shootInterval: 0 },
-    3: { hp: 3, movePattern: 'lr', shootInterval: 0 },
-    4: { hp: 3, movePattern: 'free', shootInterval: 0 },
-    5: { hp: 4, movePattern: 'lr', shootInterval: 180 },
-    6: { hp: 10, movePattern: 'curve', shootInterval: 60 }
+    1: { hp: 20, movePattern: 'none', shootInterval: 0, shieldInterval: 0 },
+    2: { hp: 30, movePattern: 'none', shootInterval: 0, shieldInterval: 0 },
+    3: { hp: 40, movePattern: 'lr', shootInterval: 0, shieldInterval: 0 },
+    4: { hp: 90, movePattern: 'free', shootInterval: 0, shieldInterval: 780 },   // 13초
+    5: { hp: 200, movePattern: 'lr', shootInterval: 102, shieldInterval: 540 },  // 총알 1.7초마다, 방어막 9초
+    6: { hp: 1000, movePattern: 'curve', shootInterval: 60, shieldInterval: 300 } // 5초
 };
 
 // 스테이지별 강화블럭 개수 (기준값, 난이도에 따라 배율 적용)
@@ -270,6 +328,28 @@ function createBricks() {
             bossShootTimer: 0
         }]];
     }
+    if (BOSS4_TEST) {
+        const cfg = BOSS_CONFIG[4] || BOSS_CONFIG[1];
+        const w = 80, h = 80;
+        return [[{
+            x: (options.canvasWidth - w) / 2,
+            y: BRICK_OFFSET_TOP + 80,
+            width: w,
+            height: h,
+            visible: true,
+            hp: cfg.hp,
+            maxHp: cfg.hp,
+            isItem: false,
+            isNerf: false,
+            itemType: null,
+            isBoss: true,
+            radius: Math.min(w, h) / 2,
+            bossBaseSize: Math.min(w, h),
+            bossVx: 0,
+            bossVy: 0,
+            bossShootTimer: 0
+        }]];
+    }
     if (BOSS5_TEST) {
         const cfg = BOSS_CONFIG[5] || BOSS_CONFIG[1];
         const w = 80, h = 80;
@@ -325,6 +405,12 @@ function createBricks() {
     for (let i = 10; i < shuffled.length && reinforcedPositions.size < reinforcedCount; i++) {
         reinforcedPositions.add(shuffled[i]);
     }
+    const bombCount = Math.min(3, Math.max(1, Math.floor(shuffled.length / 25)));
+    const bombPositions = new Set();
+    for (let i = 15; i < shuffled.length && bombPositions.size < bombCount; i++) {
+        const p = shuffled[i];
+        if (!itemPositions.has(p) && !nerfPositions.has(p)) bombPositions.add(p);
+    }
 
     const bricks = [];
     for (let row = 0; row < rows; row++) {
@@ -338,6 +424,7 @@ function createBricks() {
             const isItemBlock = itemPositions.has(pos);
             const isNerfBlock = nerfPositions.has(pos);
             const isReinforced = reinforcedPositions.has(pos);
+            const isBombBlock = bombPositions.has(pos);
             let hp = 1, itemType = null;
             if (isItemBlock) {
                 itemType = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
@@ -368,6 +455,7 @@ function createBricks() {
                 visible: true,
                 hp, maxHp: hp,
                 isItem, isNerf,
+                isBomb: isBombBlock,
                 itemType: finalItemType,
                 isBoss: false,
                 bossVx: 0, bossVy: 0,
@@ -382,6 +470,7 @@ let bricks = [];
 
 // delta time (공 속도 일정화 - 모바일 프레임레이트 변동 대응)
 let lastFrameTime = performance.now();
+let screenShakeIntensity = 0;  // 벽돌 충돌 시 미세 흔들림
 const TARGET_FPS = 60;
 const FRAME_MS = 1000 / TARGET_FPS;
 
@@ -396,6 +485,12 @@ function getCanvasX(clientX) {
     const scaleX = canvas.width / rect.width;
     return (clientX - rect.left) * scaleX;
 }
+function getCanvasPos(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
 
 document.addEventListener('mousemove', (e) => {
     mouseX = getCanvasX(e.clientX);
@@ -405,10 +500,28 @@ document.addEventListener('mousemove', (e) => {
 // 터치 지원 (모바일 세로 모드) - 상대 이동, 스크롤 방지
 let touchOnCanvas = false;
 let lastTouchX = 0;
+let creatorTouchStart = null;
 canvas.addEventListener('touchstart', (e) => {
     touchOnCanvas = true;
     unlockAudio();
     e.preventDefault();
+    if (creatorMode && e.touches.length > 0) {
+        const t = e.touches[0];
+        const pos = getCanvasPos(t.clientX, t.clientY);
+        creatorTouchStart = { x: pos.x, y: pos.y };
+        const brick = creatorBrickAt(pos.x, pos.y);
+        if (creatorDeleteMode) {
+            if (brick) creatorBricks = creatorBricks.filter(b => b !== brick);
+        } else if (brick) {
+            creatorDragging = true;
+            creatorDragBrick = brick;
+            creatorDragOffsetX = pos.x - brick.x;
+            creatorDragOffsetY = pos.y - brick.y;
+        } else if (pos.y >= BRICK_OFFSET_TOP && pos.y <= canvas.height - 80) {
+            creatorBricks.push(createDefaultCreatorBrick(pos.x, pos.y));
+        }
+        return;
+    }
     if (e.touches.length > 0) {
         lastTouchX = getCanvasX(e.touches[0].clientX);
         lastInputMethod = 'touch';
@@ -417,6 +530,12 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
+    if (creatorMode && creatorDragging && creatorDragBrick && e.touches.length > 0) {
+        const pos = getCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+        creatorDragBrick.x = Math.max(0, Math.min(canvas.width - creatorDragBrick.width, pos.x - creatorDragOffsetX));
+        creatorDragBrick.y = Math.max(BRICK_OFFSET_TOP, Math.min(canvas.height - 80 - creatorDragBrick.height, pos.y - creatorDragOffsetY));
+        return;
+    }
     if (e.touches.length > 0) {
         const currentX = getCanvasX(e.touches[0].clientX);
         const delta = currentX - lastTouchX;
@@ -430,6 +549,7 @@ canvas.addEventListener('touchmove', (e) => {
 canvas.addEventListener('touchend', (e) => {
     touchOnCanvas = false;
     e.preventDefault();
+    if (creatorMode) { creatorDragging = false; creatorDragBrick = null; creatorTouchStart = null; return; }
     if (gameRunning && !gamePaused && !ballLaunched && e.changedTouches.length > 0) {
         launchBall();
     }
@@ -480,9 +600,10 @@ document.addEventListener('keyup', (e) => {
 });
 
 function updatePaddle() {
+    const speedMult = bossUpgrades.paddleSpeedMult || 1;
     if (keys['ArrowLeft'] || keys['ArrowRight']) {
-        if (keys['ArrowLeft']) { paddle.x -= paddle.speed; lastPaddleDirection = -1; }
-        if (keys['ArrowRight']) { paddle.x += paddle.speed; lastPaddleDirection = 1; }
+        if (keys['ArrowLeft']) { paddle.x -= paddle.speed * speedMult; lastPaddleDirection = -1; }
+        if (keys['ArrowRight']) { paddle.x += paddle.speed * speedMult; lastPaddleDirection = 1; }
         lastInputMethod = 'keyboard';
     } else if (lastInputMethod === 'mouse') {
         const targetX = mouseX - paddle.width / 2;
@@ -557,16 +678,18 @@ function spawnFallingItem(x, y, type) {
 function playBrickBreakSound() {
     try {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const t = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.frequency.value = 440;
-        osc.type = 'square';
-        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
-        osc.start(audioCtx.currentTime);
-        osc.stop(audioCtx.currentTime + 0.05);
+        osc.frequency.setValueAtTime(520, t);
+        osc.frequency.exponentialRampToValueAtTime(180, t + 0.06);
+        osc.type = 'triangle';
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+        osc.start(t);
+        osc.stop(t + 0.06);
     } catch (e) {}
 }
 
@@ -668,6 +791,7 @@ function applyItemEffect(type) {
             activeItems.push({ type: 'paddle2x', duration: 600 });
             break;
         case 'BALL_SLOW':
+            if (currentStage <= 5) break;
             activeItems = activeItems.filter(i => i.type !== 'ballFast');
             balls.forEach(b => {
                 const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
@@ -780,7 +904,7 @@ function updateActiveItems() {
 function updateFallingItems(dt = 1) {
     const magnetActive = activeItems.some(i => i.type === 'magnet');
     fallingItems = fallingItems.filter(item => {
-        if (magnetActive) {
+        if (magnetActive && !NERF_TYPES.includes(item.type)) {
             const paddleCenter = paddle.x + paddle.width / 2;
             item.x += (paddleCenter - (item.x + item.width/2)) * 0.05 * dt;
         }
@@ -812,21 +936,36 @@ function isBossInvincible(brick) {
     return brick.bossInvinciblePhase;
 }
 
+function getBallDamage() {
+    return currentStage >= 6 ? 90 : 10;  // 스테이지6: 90, 이하: 10
+}
 function hitBrick(brick, isBullet = false) {
     if (bricksHitThisFrame.has(brick)) return;
     bricksHitThisFrame.add(brick);
-    const hitInvincible = brick.isBoss && currentStage === 6 && brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil;
+    const hitInvincible = brick.isBoss && brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil;
     if (brick.isBoss && (isBossInvincible(brick) || hitInvincible)) return;
-    brick.hp = Math.max(0, brick.hp - 1);  // 1씩만 감소
+    let damage = brick.isBoss ? (isBullet ? 1 : (Math.random() < 0.18 ? 20 : getBallDamage())) : 1;
+    brick.hp = Math.max(0, brick.hp - damage);
+    if (brick.isBoss && !isBullet && damage > 0) {
+        damageNumbers.push({
+            x: brick.x + brick.width / 2, y: brick.y + brick.height / 2,
+            value: damage, until: Date.now() + 400
+        });
+    }
     playBrickBreakSound();
     vibrateBrickBreak();
+    if (currentStage === 5 || currentStage === 6) {
+        screenShakeIntensity = Math.min(screenShakeIntensity + 6, 12);
+    } else {
+        screenShakeIntensity = Math.min(screenShakeIntensity + 3, 6);
+    }
     if (brick.isBoss && brick.hp === 1 && currentStage === 6) {
         const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
         const invincibleMs = cfg.stage6BossInvincibleMs || 20000;
         brick.bossInvincibleUntil = Date.now() + invincibleMs;  // stage6만: 난이도별 무적 시간
         brick.bossInvinciblePhase = true;
     }
-    if (brick.isBoss && currentStage === 6 && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
+    if (brick.isBoss && !isBullet) brick.bossHitInvincibleUntil = Date.now() + 300;  // 공 맞을 때 0.3초 무적
     const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
     let addScore;
     if (brick.isBoss) {
@@ -834,16 +973,74 @@ function hitBrick(brick, isBullet = false) {
         const baseScore = BOSS_SCORES[Math.min(currentStage - 1, 5)] || 100;
         addScore = baseScore * (cfg.bossScoreMult || 1);
     } else {
-        const baseScore = brick.isItem ? 25 : (brick.isNerf ? 15 : 10);
+        const baseScore = brick.isItem ? 25 : (brick.isNerf ? 15 : (brick.isBomb ? 15 : 10));
         addScore = baseScore * cfg.scoreMult;
     }
     score += addScore;
     updateScoreUI(score);
+    if (!brick.isBoss && bossUpgrades.explodeChance > 0 && Math.random() < bossUpgrades.explodeChance) {
+        setTimeout(() => explodeNearbyBricks(brick), 50);
+    }
     if (brick.hp <= 0) {
         brick.visible = false;
+        if (!brick.isBoss) { coins += 2; updateCoinsUI(coins); }
         if (brick.isItem && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
         if (brick.isNerf && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
+        if (brick.isBomb) setTimeout(() => explodeNearbyBricks(brick), 400);
+        applyBrickBreakBonus();
+        if (brick.isBoss) showBossUpgradeChoice();
     }
+}
+
+function applyBrickBreakBonus() {
+    bricksBrokenCount++;
+    if (bricksBrokenCount % 14 !== 0) return;
+    const effect = Math.random() < 0.5 ? 'bullet' : 'powerBall';
+    if (effect === 'bullet') {
+        hasBulletPower = true;
+        activeItems.push({ type: 'bullet', duration: 780 });  // 13초
+        updateBulletFireButtonVisibility();
+    } else {
+        activeItems.push({ type: 'powerBall', duration: 840 });  // 14초
+    }
+    playItemPickupSound();
+}
+
+function destroyBrickWithoutHit(brick) {
+    if (!brick || !brick.visible || brick.isBoss) return;
+    const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
+    const baseScore = brick.isItem ? 25 : brick.isNerf ? 15 : 10;
+    score += baseScore * cfg.scoreMult;
+    updateScoreUI(score);
+    playBrickBreakSound();
+    vibrateBrickBreak();
+    if (currentStage === 5 || currentStage === 6) {
+        screenShakeIntensity = Math.min(screenShakeIntensity + 4, 12);
+    } else {
+        screenShakeIntensity = Math.min(screenShakeIntensity + 2, 6);
+    }
+    brick.hp = 0;
+    brick.visible = false;
+    coins += 2;
+    updateCoinsUI(coins);
+    if (brick.isItem && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
+    if (brick.isNerf && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
+    applyBrickBreakBonus();
+}
+
+function explodeNearbyBricks(centerBrick) {
+    const cx = centerBrick.x + centerBrick.width / 2;
+    const cy = centerBrick.y + centerBrick.height / 2;
+    const radius = centerBrick.width * 2.2;
+    bricks.forEach(row => {
+        row.forEach(brick => {
+            if (!brick || !brick.visible || brick === centerBrick || brick.isBoss) return;
+            const bcx = brick.x + brick.width / 2;
+            const bcy = brick.y + brick.height / 2;
+            const dx = bcx - cx, dy = bcy - cy;
+            if (dx * dx + dy * dy <= radius * radius) destroyBrickWithoutHit(brick);
+        });
+    });
 }
 
 function updateBoss(dt = 1) {
@@ -851,7 +1048,15 @@ function updateBoss(dt = 1) {
     bricks.forEach(row => {
         row.forEach(brick => {
             if (!brick || !brick.visible || !brick.isBoss) return;
-            const isInvincible = isBossInvincible(brick) || (currentStage === 6 && brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil);
+            const r = Math.min(brick.width, brick.height) / 2;
+            const cx = brick.x + brick.width / 2, cy = brick.y + brick.height / 2;
+            if (brick.width !== brick.height) {
+                brick.width = brick.height = r * 2;
+                brick.x = cx - r;
+                brick.y = cy - r;
+            }
+            brick.radius = r;
+            const isInvincible = isBossInvincible(brick) || (brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil);
             if ((currentStage === 5 || currentStage === 6) && brick.bossBaseSize) {
                 const baseSize = brick.bossBaseSize;
                 const newSize = (currentStage === 5) ? baseSize * 0.7 : baseSize;
@@ -862,6 +1067,23 @@ function updateBoss(dt = 1) {
                 brick.y = cy - newSize / 2;
             }
             brick.bossShootTimer = (brick.bossShootTimer || 0) + dt;
+            if (currentStage >= 5) {
+                brick.bossMinionTimer = (brick.bossMinionTimer || 0) + dt;
+                if (brick.bossMinionTimer >= 780) {
+                    brick.bossMinionTimer = 0;
+                    const mx = brick.x + brick.width / 2 - 12;
+                    const my = brick.y + brick.height;
+                    minions.push({ x: mx, y: my, width: 24, height: 24, vx: 1.5, vy: 0, hp: 1, shootTimer: 0 });
+                }
+            }
+            if (currentStage >= 4 && (cfg.shieldInterval || 0) > 0) {
+                brick.bossShieldTimer = (brick.bossShieldTimer || 0) + dt;
+                if (brick.bossShieldTimer >= cfg.shieldInterval) {
+                    brick.bossShieldTimer = 0;
+                    bossShields = bossShields.filter(s => s.bossBrick !== brick);
+                    bossShields.push({ bossBrick: brick });
+                }
+            }
             const shootInt = (brick.hp === 1 ? cfg.shootInterval / 2 : cfg.shootInterval);
             const bulletDy = (brick.hp === 1 ? 6 : 3);
             if (cfg.shootInterval > 0 && brick.bossShootTimer >= shootInt) {
@@ -955,6 +1177,28 @@ function updateBoss(dt = 1) {
             }
         });
     });
+    minions = minions.filter(m => {
+        m.x += m.vx * dt;
+        m.y += m.vy * dt;
+        if (m.x <= 0 || m.x + m.width >= canvas.width) m.vx = -m.vx;
+        if (m.y <= BRICK_OFFSET_TOP || m.y + m.height >= canvas.height - 80) m.vy = -m.vy;
+        m.shootTimer = (m.shootTimer || 0) + dt;
+        if (m.shootTimer >= 240) {
+            m.shootTimer = 0;
+            minionBullets.push({ x: m.x + m.width / 2 - 4, y: m.y + m.height, width: 8, height: 12, dy: 4 });
+        }
+        return m.hp > 0;
+    });
+    minionBullets = minionBullets.filter(b => {
+        b.y += b.dy * dt;
+        if (b.y > canvas.height) return false;
+        if (b.y + b.height > paddle.y && b.y < paddle.y + paddle.height &&
+            b.x + b.width > paddle.x && b.x < paddle.x + paddle.width) {
+            applyNerfEffect(pickRandomBossBulletNerf());
+            return false;
+        }
+        return true;
+    });
 }
 
 function updateBullets(dt = 1) {
@@ -973,6 +1217,18 @@ function updateBullets(dt = 1) {
                     hitBrick(brick, true);
                     hit = true;
                     break outer;
+                }
+            }
+        }
+        if (!hit) {
+            for (const minion of minions) {
+                if (b.x + b.width > minion.x && b.x < minion.x + minion.width &&
+                    yMax > minion.y && yMin < minion.y + minion.height) {
+                    minion.hp = 0;
+                    coins += 2;
+                    updateCoinsUI(coins);
+                    hit = true;
+                    break;
                 }
             }
         }
@@ -1026,7 +1282,7 @@ function updateBall(dt = 1) {
         return;
     }
     const powerBallActive = activeItems.some(i => i.type === 'powerBall');
-    const ballRadiusMult = powerBallActive ? 1.5 : 1;
+    const ballRadiusMult = (powerBallActive ? 1.5 : 1) * (bossUpgrades.ballSizeMult || 1);
     for (let bi = balls.length - 1; bi >= 0; bi--) {
         const ball = balls[bi];
         const r = ball.radius * ballRadiusMult;
@@ -1075,6 +1331,54 @@ function updateBall(dt = 1) {
     balls.forEach(ball => {
         let ballHit = false;
         const r = ball.radius * ballRadiusMult;
+        for (const minion of minions) {
+            if (ball.x + r > minion.x && ball.x - r < minion.x + minion.width &&
+                ball.y + r > minion.y && ball.y - r < minion.y + minion.height) {
+                minion.hp = 0;
+                coins += 2;
+                updateCoinsUI(coins);
+                const dx = ball.x - (minion.x + minion.width / 2);
+                const dy = ball.y - (minion.y + minion.height / 2);
+                const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                const nx = dx / len, ny = dy / len;
+                const dot = ball.dx * nx + ball.dy * ny;
+                if (dot > 0) {
+                    ball.dx -= 2 * dot * nx;
+                    ball.dy -= 2 * dot * ny;
+                    const c = clampBallAngle(ball.dx, ball.dy);
+                    ball.dx = c.dx; ball.dy = c.dy;
+                }
+                ballHit = true;
+                break;
+            }
+        }
+        if (ballHit) return;
+        bossShields = bossShields.filter(shield => {
+            const b = shield.bossBrick;
+            if (!b || !b.visible) return false;
+            const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+            const bossR = b.radius || b.width / 2;
+            const shieldOuter = bossR + 22;
+            const shieldInner = bossR + 2;
+            const dx = ball.x - cx, dy = ball.y - cy;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist >= shieldInner && dist <= shieldOuter + r) {
+                ballHit = true;
+                const nx = dx / (dist || 0.001);
+                const ny = dy / (dist || 0.001);
+                const dot = ball.dx * nx + ball.dy * ny;
+                if (dot > 0) {
+                    ball.dx -= 2 * dot * nx;
+                    ball.dy -= 2 * dot * ny;
+                    const c = clampBallAngle(ball.dx, ball.dy);
+                    ball.dx = c.dx; ball.dy = c.dy;
+                }
+                playBrickBreakSound();
+                return false;
+            }
+            return true;
+        });
+        if (ballHit) return;
         bricks.forEach(row => {
             row.forEach(brick => {
                 if (brick && brick.visible && (!ballHit || powerBallActive) &&
@@ -1113,7 +1417,7 @@ function updateBall(dt = 1) {
             bossBrick.isBoss = true;
             bossBrick.hp = cfg.hp;
             bossBrick.maxHp = cfg.hp;
-            const baseMult = currentStage === 6 ? 3.8 : 3;  // stage6 보스 크기 (최종보스 강조)
+            const baseMult = currentStage === 6 ? 3.8 : 3;
             const size = Math.min(bossBrick.width, bossBrick.height) * baseMult;
             bossBrick.x += (bossBrick.width - size) / 2;
             bossBrick.y += (bossBrick.height - size) / 2;
@@ -1125,8 +1429,10 @@ function updateBall(dt = 1) {
     }
 
     const allBricksGone = bricks.every(row => row.every(brick => !brick || !brick.visible));
-    if (allBricksGone) {
-        if (currentStage < TOTAL_STAGES) {
+    if (allBricksGone && !awaitingBossUpgradeChoice) {
+        if (STAGE4_ONLY && currentStage === 4) {
+            endStage4OnlyTest();
+        } else if (currentStage < TOTAL_STAGES) {
             showStageClearAndNext();
         } else {
             winGame();
@@ -1134,13 +1440,41 @@ function updateBall(dt = 1) {
     }
 }
 
-function showStageClearAndNext() {
+function endStage4OnlyTest() {
     gameRunning = false;
     cancelAnimationFrame(animationId);
     activeItems = [];
     fallingItems = [];
     hasBulletPower = false;
     bullets = [];
+    bossBullets = [];
+    bossShields = [];
+    damageNumbers = [];
+    bulletAutoFireFrame = 0;
+    paddle.width = paddle.baseWidth;
+    paddle.speed = options.paddleSpeed;
+    updateBulletFireButtonVisibility();
+    const msgEl = document.getElementById('stageMsgText');
+    const overlayEl = document.getElementById('stageMsgOverlay');
+    const resetBtn = document.getElementById('resetRankingStageBtn');
+    if (msgEl && overlayEl) {
+        msgEl.textContent = '스테이지 4 클리어 - 테스트 종료';
+        if (resetBtn) { resetBtn.style.display = 'none'; }
+        overlayEl.classList.remove('hidden');
+    }
+}
+
+function showStageClearAndNext() {
+    const justClearedStage1 = currentStage === 1;
+    gameRunning = false;
+    cancelAnimationFrame(animationId);
+    activeItems = [];
+    fallingItems = [];
+    hasBulletPower = false;
+    bullets = [];
+    bossBullets = [];
+    bossShields = [];
+    damageNumbers = [];
     bulletAutoFireFrame = 0;
     paddle.width = paddle.baseWidth;
     paddle.speed = options.paddleSpeed;
@@ -1153,6 +1487,11 @@ function showStageClearAndNext() {
         if (resetBtn) { resetBtn.style.display = 'inline-block'; }
         overlayEl.classList.remove('hidden');
     }
+    if (justClearedStage1 && currentAccount && !isGuestAccount()) {
+        saveClearedStage1().catch(() => {});
+    }
+    options.coins = coins;
+    saveCoins();
     setTimeout(() => {
         if (resetBtn) { resetBtn.style.display = 'none'; }
         currentStage++;
@@ -1227,41 +1566,46 @@ const paddleImage = new Image();
 paddleImage.onload = onImageLoad;
 paddleImage.src = PATH.image + '검.png';
 
+const stage5BgImage = new Image();
+stage5BgImage.onload = onImageLoad;
+stage5BgImage.src = PATH.image + '스테이지5배경화면.png';
+
 const stage6BgImage = new Image();
 stage6BgImage.onload = onImageLoad;
 stage6BgImage.src = PATH.image + '스테이지6배경화면.png';
 
 function drawPaddle() {
-    if (paddleImage.complete && paddleImage.naturalWidth > 0) {
+    const skin = PADDLE_SKINS.find(s => s.id === (options.paddleSkin || 'default')) || PADDLE_SKINS[0];
+    if (skin.id === 'default' && paddleImage.complete && paddleImage.naturalWidth > 0) {
         try {
             ctx.drawImage(paddleImage, paddle.x, paddle.y, paddle.width, paddle.height);
             return;
         } catch (e) { /* 이미지 그리기 실패 시 fallback */ }
     }
-    {
-        const gradient = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.width, 0);
-        gradient.addColorStop(0, '#667eea');
-        gradient.addColorStop(0.5, '#764ba2');
-        gradient.addColorStop(1, '#667eea');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        const cx = paddle.x + paddle.width / 2;
-        const cy = paddle.y + paddle.height;
-        const a = paddle.width / 2;
-        const b = paddle.height * 0.8;
-        ctx.moveTo(paddle.x, cy);
-        ctx.ellipse(cx, cy, a, b, 0, Math.PI, Math.PI * 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-    }
+    const cols = skin.colors || ['#667eea', '#764ba2'];
+    const gradient = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.width, 0);
+    gradient.addColorStop(0, cols[0]);
+    gradient.addColorStop(0.5, cols[1] || cols[0]);
+    gradient.addColorStop(1, cols[0]);
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    const cx = paddle.x + paddle.width / 2;
+    const cy = paddle.y + paddle.height;
+    const a = paddle.width / 2;
+    const b = paddle.height * 0.8;
+    ctx.moveTo(paddle.x, cy);
+    ctx.ellipse(cx, cy, a, b, 0, Math.PI, Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
 }
 
 function drawBall() {
     const powerBallActive = activeItems.some(i => i.type === 'powerBall');
-    const rMult = powerBallActive ? 1.5 : 1;
+    const rMult = (powerBallActive ? 1.5 : 1) * (bossUpgrades.ballSizeMult || 1);
+    const skin = BALL_SKINS.find(s => s.id === (options.ballSkin || 'default')) || BALL_SKINS[0];
     balls.forEach(ball => {
         const r = ball.radius * rMult;
         const gradient = ctx.createRadialGradient(
@@ -1272,14 +1616,19 @@ function drawBall() {
             gradient.addColorStop(0, '#ffffff');
             gradient.addColorStop(0.5, '#ff6666');
             gradient.addColorStop(1, '#cc0000');
-        } else if (currentStage === 6) {
+        } else if (currentStage === 6 && skin.id === 'default') {
             gradient.addColorStop(0, '#333333');
             gradient.addColorStop(0.5, '#1a1a1a');
             gradient.addColorStop(1, '#000000');
+        } else if (skin.colors) {
+            gradient.addColorStop(0, skin.colors[0]);
+            gradient.addColorStop(0.5, skin.colors[1] || skin.colors[0]);
+            gradient.addColorStop(1, skin.colors[2] || skin.colors[1] || skin.colors[0]);
         } else {
-            gradient.addColorStop(0, '#ffffff');
-            gradient.addColorStop(0.5, '#e0e0ff');
-            gradient.addColorStop(1, '#9d9dff');
+            const h = (Date.now() / 30) % 360;
+            gradient.addColorStop(0, `hsl(${h}, 100%, 100%)`);
+            gradient.addColorStop(0.5, `hsl(${(h + 60) % 360}, 90%, 70%)`);
+            gradient.addColorStop(1, `hsl(${(h + 120) % 360}, 90%, 50%)`);
         }
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -1289,6 +1638,7 @@ function drawBall() {
 }
 
 function drawFallingItems() {
+    if (currentStage === 4) return;
     fallingItems.forEach(item => {
         const w = Math.floor(item.width || 48);
         const h = Math.floor(item.height || 56);
@@ -1334,6 +1684,7 @@ function drawBagShape(x, y, w, h) {
 }
 
 function drawBullets() {
+    if (currentStage === 4) return;
     bullets.forEach(b => {
         ctx.fillStyle = '#00ff88';
         ctx.fillRect(b.x, b.y, b.width, b.height);
@@ -1378,20 +1729,21 @@ function drawActiveItemEffects() {
 function drawBricks() {
     bricks.forEach(row => {
         row.forEach(brick => {
-            if (brick && brick.visible) {
+            if (!brick || !brick.visible) return;
+            if (currentStage === 4 && !brick.isBoss) return;
                 const hp = brick.hp || 1;
                 if (brick.isBoss) {
                     const cx = brick.x + brick.width / 2;
                     const cy = brick.y + brick.height / 2;
                     const r = brick.radius ?? Math.min(brick.width, brick.height) / 2;
+                    const size = r * 2;
                     ctx.save();
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                    ctx.closePath();
                     ctx.clip();
                     const img = (currentStage === 1 || currentStage === 2) ? earlyBossImage : (currentStage === 3 ? stage3BossImage : (currentStage === 4 ? stage4BossImage : (currentStage === 5 ? stage5BossImage : (currentStage === 6 ? stage6BossImage : bossImage))));
                     if (img.complete && img.naturalWidth > 0) {
-                        ctx.drawImage(img, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
+                        ctx.drawImage(img, Math.floor(cx - r), Math.floor(cy - r), Math.floor(size), Math.floor(size));
                     } else {
                         ctx.fillStyle = `hsl(${(Date.now() / 50) % 360}, 80%, 55%)`;
                         ctx.beginPath();
@@ -1399,18 +1751,18 @@ function drawBricks() {
                         ctx.fill();
                     }
                     ctx.restore();
-                    const bossInvincible = isBossInvincible(brick) || (currentStage === 6 && brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil);
+                    const bossInvincible = isBossInvincible(brick) || (brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil);
                     ctx.strokeStyle = bossInvincible ? '#ff0000' : '#fff';
-                    ctx.lineWidth = bossInvincible ? 6 : 4;  // 테두리 2배
+                    ctx.lineWidth = bossInvincible ? 6 : 4;
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
                     ctx.stroke();
                 } else {
-                    const color = HP_COLORS[hp] || HP_COLORS[1];
+                    const color = brick.isBomb ? '#f97316' : (HP_COLORS[hp] || HP_COLORS[1]);
                     ctx.fillStyle = color;
                     ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
-                    ctx.strokeStyle = brick.isItem ? '#fff' : 'rgba(0,0,0,0.3)';
-                    ctx.lineWidth = brick.isItem ? 2 : 1;
+                    ctx.strokeStyle = brick.isItem ? '#fff' : (brick.isBomb ? '#fff' : 'rgba(0,0,0,0.3)');
+                    ctx.lineWidth = brick.isItem ? 2 : (brick.isBomb ? 2 : 1);
                     ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
                 }
                 if (brick.isItem && !brick.isNerf) {
@@ -1420,13 +1772,82 @@ function drawBricks() {
                         drawBagShape(brick.x, brick.y, brick.width, brick.height);
                     }
                 }
-                if (brick.isNerf) {
+                if (brick.isNerf || brick.isBomb) {
                     if (bombImage.complete && bombImage.naturalWidth > 0) {
                         ctx.drawImage(bombImage, Math.floor(brick.x), Math.floor(brick.y), Math.floor(brick.width), Math.floor(brick.height));
                     }
                 }
-            }
         });
+    });
+}
+
+function drawBackgroundOverDestroyedBricks() {
+    bricks.forEach(row => {
+        row.forEach(brick => {
+            if (!brick || brick.visible) return;
+            const x = Math.floor(brick.x);
+            const y = Math.floor(brick.y);
+            const w = Math.ceil(brick.width);
+            const h = Math.ceil(brick.height);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
+            if (currentStage === 5 && stage5BgImage.complete && stage5BgImage.naturalWidth > 0) {
+                ctx.drawImage(stage5BgImage, x, y, w, h, x, y, w, h);
+            } else if (currentStage === 6 && stage6BgImage.complete && stage6BgImage.naturalWidth > 0) {
+                ctx.drawImage(stage6BgImage, x, y, w, h, x, y, w, h);
+            } else {
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
+                ctx.lineWidth = 1;
+                for (let i = Math.floor(x / 40) * 40; i < x + w; i += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(i, 0);
+                    ctx.lineTo(i, canvas.height);
+                    ctx.stroke();
+                }
+                for (let i = Math.floor(y / 40) * 40; i < y + h; i += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, i);
+                    ctx.lineTo(canvas.width, i);
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        });
+    });
+}
+
+function drawBossShields() {
+    bossShields.forEach(shield => {
+        const b = shield.bossBrick;
+        if (!b || !b.visible) return;
+        const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        const bossR = b.radius || b.width / 2;
+        const inner = bossR + 2, outer = bossR + 22;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.8)';
+        ctx.lineWidth = 20;
+        ctx.beginPath();
+        ctx.arc(cx, cy, (inner + outer) / 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    });
+}
+
+function drawDamageNumbers() {
+    const now = Date.now();
+    damageNumbers = damageNumbers.filter(d => {
+        if (now >= d.until) return false;
+        ctx.save();
+        ctx.font = 'bold 28px sans-serif';
+        ctx.fillStyle = '#ff0000';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(d.value), d.x, d.y - 10);
+        ctx.restore();
+        return true;
     });
 }
 
@@ -1443,7 +1864,7 @@ function drawBossHPBar() {
     if (!bossBrick) return;
     const hp = bossBrick.hp || 1;
     const maxHp = bossBrick.maxHp || 1;
-    const isInvincible = isBossInvincible(bossBrick) || (currentStage === 6 && bossBrick.bossHitInvincibleUntil && Date.now() < bossBrick.bossHitInvincibleUntil);
+    const isInvincible = isBossInvincible(bossBrick) || (bossBrick.bossHitInvincibleUntil && Date.now() < bossBrick.bossHitInvincibleUntil);
     const barW = 45;  // 가로 1/3 축소 (134/3)
     const barH = 28;
     const gap = 12;
@@ -1464,7 +1885,19 @@ function draw() {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    if (currentStage === 6 && stage6BgImage.complete && stage6BgImage.naturalWidth > 0) {
+    if (screenShakeIntensity > 0.1) {
+        ctx.save();
+        const sx = (Math.random() - 0.5) * 2 * screenShakeIntensity;
+        const sy = (Math.random() - 0.5) * 2 * screenShakeIntensity;
+        ctx.translate(sx, sy);
+    }
+
+    if (currentStage === 4) {
+        ctx.fillStyle = '#0f0c29';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else if (currentStage === 5 && stage5BgImage.complete && stage5BgImage.naturalWidth > 0) {
+        ctx.drawImage(stage5BgImage, 0, 0, canvas.width, canvas.height);
+    } else if (currentStage === 6 && stage6BgImage.complete && stage6BgImage.naturalWidth > 0) {
         ctx.drawImage(stage6BgImage, 0, 0, canvas.width, canvas.height);
     } else {
         ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
@@ -1484,17 +1917,33 @@ function draw() {
     }
 
     drawBricks();
+    drawBackgroundOverDestroyedBricks();
     drawPaddle();
     drawFallingItems();
     drawBullets();
     drawBall();
     drawActiveItemEffects();
+    drawBossShields();
     drawBossHPBar();
+    minions.forEach(m => {
+        ctx.fillStyle = '#ff6b6b';
+        ctx.fillRect(m.x, m.y, m.width, m.height);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(m.x, m.y, m.width, m.height);
+    });
+    minionBullets.forEach(b => {
+        ctx.fillStyle = '#ff3333';
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+    });
+
+    if (screenShakeIntensity > 0.1) ctx.restore();
+    screenShakeIntensity *= 0.75;
 }
 
 function isAnyPauseOverlayVisible() {
     if (typeof document !== 'undefined' && document.hidden) return true;
-    const ids = ['optionsPanel', 'stageMsgOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'bossUpgradeOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el && !el.classList.contains('hidden')) return true;
@@ -1560,11 +2009,15 @@ function startGame(isNewGame = true) {
     fallingItems = [];
     bullets = [];
     bossBullets = [];
+    bossShields = [];
+    damageNumbers = [];
     activeItems = [];
+    bricksBrokenCount = 0;
+    bossUpgrades = { ballSizeMult: 1, paddleSpeedMult: 1, explodeChance: 0, extraLife: 0 };
     if (isNewGame) {
         score = 0;
         lives = 3;
-        currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : (BOSS5_TEST ? 5 : 1);
+        currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : (BOSS5_TEST ? 5 : (BOSS4_TEST || STAGE4_ONLY ? 4 : 1));
         updateStageUI(currentStage);
         bricks = createBricks();
     } else if (savedGameState) {
@@ -1583,13 +2036,28 @@ function startGame(isNewGame = true) {
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('gameOverOverlay')?.classList.add('hidden');
     document.getElementById('winOverlay')?.classList.add('hidden');
+    coins = options.coins ?? coins;
+    updateCoinsUI(coins);
     updateOptionsButtonVisibility();
     updateBulletFireButtonVisibility();
     if (isMobile()) enforceMobileLandscapeFullscreen();
     paddle.x = (canvas.width - paddle.width) / 2;
     mouseX = canvas.width / 2;
     resetBall();
+    applyEquipmentAtStart();
     showStageStartAndResume();
+}
+
+function applyEquipmentAtStart() {
+    const eq = options.equipment || [];
+    if (eq.includes('powerBall')) activeItems.push({ type: 'powerBall', duration: 1800 });
+    if (eq.includes('tripleStart') && balls.length >= 1) {
+        const main = balls[0];
+        const spd = options.ballSpeed;
+        balls.push({ x: main.x, y: main.y, radius: BALL_RADIUS, dx: spd * 0.7, dy: -spd * 0.7 });
+        balls.push({ x: main.x, y: main.y, radius: BALL_RADIUS, dx: -spd * 0.7, dy: -spd * 0.7 });
+    }
+    updateBulletFireButtonVisibility();
 }
 
 function saveGameState() {
@@ -1621,9 +2089,17 @@ function restartGame() {
 
 let audioCtx = null;
 let bgmAudio = null;
+let loginBgmAudio = null;
 
 // 스테이지별 배경음악 (6스테이지는 Stage5 사용)
-const BGM_FILES = [1, 2, 3, 4, 5, 6].map(n => `${PATH.bgm}Stage${n}.mp3`);
+const BGM_FILES = [
+    PATH.bgm + 'Stage1.mp3',
+    PATH.bgm + 'Stage2.mp3',
+    PATH.bgm + 'Stage3.mp3',
+    PATH.bgm + 'stage (3).mp3',
+    PATH.bgm + 'Stage5.mp3',
+    PATH.bgm + 'Stage6.mp3'
+];
 
 function unlockAudio() {
     if (!audioCtx) {
@@ -1634,8 +2110,27 @@ function unlockAudio() {
     }
 }
 
+function stopLoginBGM() {
+    if (loginBgmAudio) {
+        loginBgmAudio.pause();
+        loginBgmAudio.currentTime = 0;
+        loginBgmAudio = null;
+    }
+}
+
+function startLoginBGM() {
+    unlockAudio();
+    stopBGM();
+    stopLoginBGM();
+    loginBgmAudio = new Audio(PATH.bgm + 'login.mp3');
+    loginBgmAudio.loop = true;
+    loginBgmAudio.volume = 0.5;
+    loginBgmAudio.play().catch(() => {});
+}
+
 function startBGM(stage) {
     unlockAudio();
+    stopLoginBGM();
     stopBGM();
     const idx = Math.min(Math.max(1, stage), BGM_FILES.length) - 1;
     const src = BGM_FILES[idx];
@@ -1653,8 +2148,8 @@ function stopBGM() {
     }
 }
 
-const MAX_RANKING = 10;
-const RANKING_DISPLAY_COUNT = 10;
+const MAX_RANKING = 40;
+const RANKING_DISPLAY_COUNT = 40;
 const FIRESTORE_TIMEOUT_MS = 15000;
 
 function isOnline() {
@@ -1722,6 +2217,13 @@ async function getAccount(name) {
     return accounts[name] || null;
 }
 
+// 장비 아이템 정의
+const EQUIPMENT_ITEMS = [
+    { id: 'shuriken', name: '수리검', desc: '공 작고 빨라, 벽돌 2개 관통', price: 30, emoji: '🥷' },
+    { id: 'powerBall', name: '강화공', desc: '게임 시작 시 강화공 30초', price: 5000, emoji: '💪' },
+    { id: 'tripleStart', name: '3공 시작', desc: '시작하자마자 공 3개', price: 990, emoji: '🔮' }
+];
+
 // 계정별 옵션 저장/로드
 const DEFAULT_OPTIONS = {
     paddleSpeed: 12,
@@ -1730,7 +2232,9 @@ const DEFAULT_OPTIONS = {
     brickRows: 6,
     brickCols: 10,
     canvasWidth: 800,
-    canvasHeight: 600
+    canvasHeight: 600,
+    paddleSkin: 'default',
+    ballSkin: 'default'
 };
 
 async function loadOptionsForAccount(accountName) {
@@ -1747,11 +2251,39 @@ async function loadOptionsForAccount(accountName) {
         options.brickCols = saved.brickCols ?? DEFAULT_OPTIONS.brickCols;
         options.canvasWidth = saved.canvasWidth ?? DEFAULT_OPTIONS.canvasWidth;
         options.canvasHeight = saved.canvasHeight ?? DEFAULT_OPTIONS.canvasHeight;
+        options.paddleSkin = saved.paddleSkin ?? DEFAULT_OPTIONS.paddleSkin;
+        options.ballSkin = saved.ballSkin ?? DEFAULT_OPTIONS.ballSkin;
+        options.coins = saved.coins ?? 0;
+        options.equipment = Array.isArray(saved.equipment) ? saved.equipment : [];
     } else {
         Object.assign(options, DEFAULT_OPTIONS);
+        options.coins = options.coins ?? 0;
+        options.equipment = options.equipment ?? [];
     }
+    coins = options.coins;
+    updateCoinsUI(coins);
     const diffEl = document.getElementById('difficulty');
     if (diffEl) diffEl.value = options.difficulty || 'easy';
+}
+
+async function saveClearedStage1() {
+    if (!currentAccount || isGuestAccount()) return;
+    try {
+        const acc = await getAccount(currentAccount);
+        if (!acc) return;
+        await saveAccount(currentAccount, {
+            ...acc,
+            options: { ...(acc.options || {}), clearedStage1: true }
+        });
+    } catch (e) { console.warn('clearedStage1 저장 오류:', e); }
+}
+
+async function hasClearedStage1(accountName) {
+    if (!accountName || accountName === GUEST_ACCOUNT) return false;
+    try {
+        const acc = await getAccount(accountName);
+        return !!(acc?.options?.clearedStage1);
+    } catch (e) { return false; }
 }
 
 async function saveOptionsToAccount() {
@@ -1767,9 +2299,22 @@ async function saveOptionsToAccount() {
             brickRows: options.brickRows,
             brickCols: options.brickCols,
             canvasWidth: options.canvasWidth,
-            canvasHeight: options.canvasHeight
+            canvasHeight: options.canvasHeight,
+            paddleSkin: options.paddleSkin ?? 'default',
+            ballSkin: options.ballSkin ?? 'default',
+            coins: options.coins ?? 0,
+            equipment: options.equipment ?? []
         }
     });
+}
+
+function saveCoins() {
+    if (isGuestAccount()) {
+        try { localStorage.setItem('guestCoins', String(coins)); } catch (e) {}
+    } else if (currentAccount) {
+        options.coins = coins;
+        saveOptionsToAccount().catch(() => {});
+    }
 }
 
 async function getRanking() {
@@ -1781,9 +2326,21 @@ async function getRanking() {
 }
 
 async function saveToRanking(score) {
+    if (isGuestAccount()) return 0;
     const ranking = await getRanking();
+    let profile = '';
+    let profileImage = '';
+    if (currentAccount) {
+        try {
+            const acc = await getAccount(currentAccount);
+            profile = (acc?.profile || '').trim();
+            profileImage = acc?.profileImage || '';
+        } catch (e) { /* ignore */ }
+    }
     ranking.push({
-        account: currentAccount || '게스트',
+        account: currentAccount,
+        profile,
+        profileImage,
         score,
         stage: currentStage || 1,
         date: new Date().toISOString()
@@ -1818,13 +2375,13 @@ async function handleResetAllRanking() {
 }
 
 async function handleResetMyRanking() {
-    if (!currentAccount) {
+    if (!currentAccount || isGuestAccount()) {
         alert('로그인된 계정이 없습니다.');
         return;
     }
     if (!confirm(currentAccount + ' 계정의 점수만 삭제하시겠습니까?')) return;
     try {
-        const ranking = (await getRanking()).filter(r => (r.account || '게스트') !== currentAccount);
+        const ranking = (await getRanking()).filter(r => r.account !== currentAccount);
         await withTimeout(window.firestoreSetDoc({ ranking }, { merge: true }), FIRESTORE_TIMEOUT_MS);
         await resetRankingUI();
         alert('내 점수가 초기화되었습니다.');
@@ -1855,10 +2412,13 @@ async function renderRanking(elementId) {
         el.innerHTML = '<h3>🏆 점수 순위</h3><p>기록이 없습니다</p>';
         return;
     }
-    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) =>
-        `<tr><td>${i + 1}</td><td>${(r.account || '게스트')}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`
-    ).join('');
-    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>아이디</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    const rows = ranking.slice(0, RANKING_DISPLAY_COUNT).map((r, i) => {
+        const imgHtml = (r.profileImage && r.profileImage.startsWith('data:')) ? `<img class="profile-img" src="${r.profileImage}" alt="">` : '';
+        const accountName = (r.account === GUEST_ACCOUNT ? '게스트' : (r.account || '게스트'));
+        const displayName = (r.profile && r.profile.trim()) ? `${r.profile.trim()} (${accountName})` : accountName;
+        return `<tr><td>${i + 1}</td><td>${imgHtml}${displayName}</td><td>${r.score}</td><td>${r.stage || '-'}스테이지</td><td>${formatRankingDate(r.date)}</td></tr>`;
+    }).join('');
+    el.innerHTML = '<h3>🏆 점수 순위</h3><table class="ranking-table"><thead><tr><th>순위</th><th>프로필</th><th>점수</th><th>최종스테이지</th><th>획득일</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
 async function resetRankingUI() {
@@ -1874,6 +2434,8 @@ function gameOver() {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
+    options.coins = coins;
+    saveCoins();
     saveGameState();
     document.getElementById('finalScore').textContent = score;
     const overlayEl = document.getElementById('gameOverOverlay');
@@ -1908,11 +2470,15 @@ function winGame() {
     updateBulletFireButtonVisibility();
     stopBGM();
     cancelAnimationFrame(animationId);
+    options.coins = coins;
+    saveCoins();
     document.getElementById('winScore').textContent = score;
     const overlayEl = document.getElementById('winOverlay');
     const rankingEl = document.getElementById('winRankingDisplay');
     if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p>순위 불러오는 중...</p>';
     if (overlayEl) overlayEl.classList.remove('hidden');
+    const resetMyBtn = document.getElementById('resetMyRankingBtnWin');
+    if (resetMyBtn) resetMyBtn.style.display = isGuestAccount() ? 'none' : '';
     (async () => {
         try {
             await saveToRanking(score);
@@ -1955,6 +2521,80 @@ function playVictoryMusic() {
     });
 }
 
+function initEquipmentShop() {
+    const grid = document.getElementById('equipmentShopGrid');
+    if (!grid) return;
+    const c = options.coins ?? coins ?? 0;
+    document.querySelectorAll('.coinVal').forEach(el => { el.textContent = c; });
+    const owned = options.equipment || [];
+    grid.innerHTML = EQUIPMENT_ITEMS.map(item => {
+        const has = owned.includes(item.id);
+        const canBuy = !has && c >= item.price && (currentAccount && !isGuestAccount());
+        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(0,0,0,0.3); border-radius:8px;">
+            <div><span>${item.emoji}</span> <strong>${item.name}</strong> - ${item.desc}<br><small>${item.price} 코인</small></div>
+            <button type="button" class="btn btn-small ${has ? 'btn-outline' : ''}" ${has ? 'disabled' : ''} data-eq="${item.id}" data-price="${item.price}">${has ? '보유중' : (canBuy ? '구매' : '코인 부족')}</button>
+        </div>`;
+    }).join('');
+    grid.querySelectorAll('button[data-eq]').forEach(btn => {
+        if (btn.disabled) return;
+        const id = btn.dataset.eq;
+        const price = parseInt(btn.dataset.price, 10);
+        btn.addEventListener('click', async () => {
+            const bal = options.coins ?? coins ?? 0;
+            if (bal < price) { alert('코인이 부족합니다.'); return; }
+            if (isGuestAccount()) { alert('장비 구매는 로그인이 필요합니다.'); return; }
+            options.coins = Math.max(0, bal - price);
+            options.equipment = [...(options.equipment || []), id];
+            coins = options.coins;
+            await saveOptionsToAccount();
+            updateCoinsUI(coins);
+            initEquipmentShop();
+            initShopUI();
+        });
+    });
+}
+
+function initShopUI() {
+    const paddleGrid = document.getElementById('paddleSkinGrid');
+    const ballGrid = document.getElementById('ballSkinGrid');
+    if (paddleGrid) {
+        paddleGrid.innerHTML = '';
+        PADDLE_SKINS.forEach(s => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'shop-skin-btn' + (options.paddleSkin === s.id ? ' selected' : '');
+            btn.title = s.name;
+            btn.textContent = s.emoji;
+            btn.style.background = s.colors ? `linear-gradient(135deg, ${s.colors[0]}, ${s.colors[1]})` : '#444';
+            btn.addEventListener('click', () => {
+                options.paddleSkin = s.id;
+                initShopUI();
+                saveOptionsToAccount().catch(() => {});
+                if (gameRunning && ctx) draw();
+            });
+            paddleGrid.appendChild(btn);
+        });
+    }
+    if (ballGrid) {
+        ballGrid.innerHTML = '';
+        BALL_SKINS.forEach(s => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'shop-skin-btn' + (options.ballSkin === s.id ? ' selected' : '');
+            btn.title = s.name;
+            btn.textContent = s.emoji;
+            btn.style.background = s.colors ? `radial-gradient(circle, ${s.colors[0]}, ${s.colors[2] || s.colors[1]})` : 'linear-gradient(135deg, #ff6b6b, #48dbfb, #1dd1a1)';
+            btn.addEventListener('click', () => {
+                options.ballSkin = s.id;
+                initShopUI();
+                saveOptionsToAccount().catch(() => {});
+                if (gameRunning && ctx) draw();
+            });
+            ballGrid.appendChild(btn);
+        });
+    }
+}
+
 function openOptions() {
     if (gameRunning) gamePaused = true;
     const paddleEl = document.getElementById('paddleSpeed');
@@ -1967,6 +2607,8 @@ function openOptions() {
     if (blockEl) blockEl.value = options.brickRows === 5 ? 'small' : options.brickRows === 8 ? 'large' : 'medium';
     const ssEl = document.getElementById('screenSize');
     if (ssEl) ssEl.value = (isMobile() && options.canvasWidth <= 960) ? 'mobile' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
+    initShopUI();
+    initEquipmentShop();
     document.getElementById('optionsPanel')?.classList.remove('hidden');
 }
 
@@ -2001,7 +2643,7 @@ function updateExitButton() {
 }
 
 async function doExit() {
-    if (STAGE6_ONLY || BOSS5_TEST) return;
+    if (STAGE6_ONLY || BOSS5_TEST || BOSS4_TEST) return;
     try {
         if (isFullscreen()) {
             const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
@@ -2017,6 +2659,7 @@ async function doExit() {
         const loginEl = document.getElementById('loginOverlay');
         if (loginEl) loginEl.classList.remove('hidden');
         document.getElementById('passwordInput').value = '';
+        startLoginBGM();
         await refreshAccountList();
         updateOptionsButtonVisibility();
         updateExitButton();
@@ -2097,6 +2740,203 @@ function closeOptions() {
 const optionsCloseBtn = document.getElementById('optionsCloseBtn');
 if (optionsCloseBtn) optionsCloseBtn.addEventListener('click', closeOptions);
 
+function createDefaultCreatorBrick(x, y) {
+    const w = 60, h = 22;
+    return {
+        x: x - w / 2, y: y - h / 2, width: w, height: h,
+        visible: true, hp: 1, maxHp: 1, isItem: false, isNerf: false, isBoss: false, isBomb: false,
+        itemType: null, bossVx: 0, bossVy: 0, bossShootTimer: 0
+    };
+}
+function creatorBrickAt(cx, cy) {
+    for (let i = creatorBricks.length - 1; i >= 0; i--) {
+        const b = creatorBricks[i];
+        if (cx >= b.x && cx <= b.x + b.width && cy >= b.y && cy <= b.y + b.height) return b;
+    }
+    return null;
+}
+function drawCreatorMode() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(138, 43, 226, 0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < canvas.width; i += 40) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+    }
+    for (let i = 0; i < canvas.height; i += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(canvas.width, i);
+        ctx.stroke();
+    }
+    creatorBricks.forEach(brick => {
+        if (!brick || !brick.visible) return;
+        const hp = brick.hp || 1;
+        const color = brick.isBomb ? '#f97316' : (HP_COLORS[hp] || HP_COLORS[1]);
+        ctx.fillStyle = color;
+        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
+    });
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+}
+function creatorLoop() {
+    if (!creatorMode) return;
+    drawCreatorMode();
+    creatorLoopId = requestAnimationFrame(creatorLoop);
+}
+async function hasCreatorModeTutorialShown() {
+    if (currentAccount && !isGuestAccount()) {
+        try {
+            const acc = await getAccount(currentAccount);
+            return !!(acc?.options?.creatorModeTutorialShown);
+        } catch (e) { return false; }
+    }
+    return !!localStorage.getItem('creatorModeTutorialShown');
+}
+async function saveCreatorModeTutorialShown() {
+    if (currentAccount && !isGuestAccount()) {
+        try {
+            const acc = await getAccount(currentAccount);
+            if (acc) await saveAccount(currentAccount, { ...acc, options: { ...(acc.options || {}), creatorModeTutorialShown: true } });
+        } catch (e) {}
+    } else {
+        localStorage.setItem('creatorModeTutorialShown', '1');
+    }
+}
+function enterCreatorMode() {
+    if (STAGE6_ONLY || BOSS5_TEST || BOSS4_TEST || STAGE4_ONLY) return;
+    applyOptions();
+    canvas.width = options.canvasWidth;
+    canvas.height = options.canvasHeight;
+    paddle.baseWidth = PADDLE_WIDTH * (options.canvasWidth / 800);
+    paddle.width = paddle.baseWidth;
+    paddle.x = (canvas.width - paddle.width) / 2;
+    paddle.y = canvas.height - 40;
+    if (creatorBricks.length === 0 && bricks.length > 0) {
+        bricks.forEach(row => {
+            row.forEach(b => {
+                if (b && b.visible) creatorBricks.push({ ...b, x: b.x, y: b.y });
+            });
+        });
+    }
+    document.getElementById('optionsPanel')?.classList.add('hidden');
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('loginOverlay')?.classList.add('hidden');
+    creatorMode = true;
+    creatorDeleteMode = false;
+    document.body.classList.add('creator-mode');
+    document.getElementById('creatorOverlay')?.classList.remove('hidden');
+    if (gameRunning) { gameRunning = false; if (animationId) cancelAnimationFrame(animationId); }
+    hasCreatorModeTutorialShown().then(shown => {
+        if (!shown) document.getElementById('creatorTutorialOverlay')?.classList.remove('hidden');
+    });
+    creatorLoop();
+}
+function exitCreatorMode() {
+    creatorMode = false;
+    creatorDragging = false;
+    creatorDragBrick = null;
+    creatorDeleteMode = false;
+    if (creatorLoopId) { cancelAnimationFrame(creatorLoopId); creatorLoopId = null; }
+    document.body.classList.remove('creator-mode');
+    document.getElementById('creatorOverlay')?.classList.add('hidden');
+    document.getElementById('creatorTutorialOverlay')?.classList.add('hidden');
+    document.getElementById('startOverlay')?.classList.remove('hidden');
+    draw();
+}
+function onCreatorMouseDown(e) {
+    if (!creatorMode) return;
+    const pos = getCanvasPos(e.clientX, e.clientY);
+    const brick = creatorBrickAt(pos.x, pos.y);
+    if (creatorDeleteMode || e.button === 2 || (e.button === 0 && e.ctrlKey)) {
+        if (brick) { creatorBricks = creatorBricks.filter(b => b !== brick); }
+        if (e.button === 2 || e.ctrlKey) e.preventDefault();
+        return;
+    }
+    if (e.button !== 0) return;
+    if (brick) {
+        creatorDragging = true;
+        creatorDragBrick = brick;
+        creatorDragOffsetX = pos.x - brick.x;
+        creatorDragOffsetY = pos.y - brick.y;
+    } else {
+        if (pos.y < BRICK_OFFSET_TOP || pos.y > canvas.height - 80) return;
+        creatorBricks.push(createDefaultCreatorBrick(pos.x, pos.y));
+    }
+}
+function onCreatorMouseMove(e) {
+    if (!creatorMode || !creatorDragging || !creatorDragBrick) return;
+    const pos = getCanvasPos(e.clientX, e.clientY);
+    creatorDragBrick.x = Math.max(0, Math.min(canvas.width - creatorDragBrick.width, pos.x - creatorDragOffsetX));
+    creatorDragBrick.y = Math.max(BRICK_OFFSET_TOP, Math.min(canvas.height - 80 - creatorDragBrick.height, pos.y - creatorDragOffsetY));
+}
+function onCreatorMouseUp(e) {
+    if (!creatorMode) return;
+    if (e.button === 0) { creatorDragging = false; creatorDragBrick = null; }
+}
+function onCreatorContextMenu(e) {
+    if (!creatorMode) return;
+    e.preventDefault();
+    const pos = getCanvasPos(e.clientX, e.clientY);
+    const brick = creatorBrickAt(pos.x, pos.y);
+    if (brick) creatorBricks = creatorBricks.filter(b => b !== brick);
+}
+canvas.addEventListener('mousedown', onCreatorMouseDown);
+canvas.addEventListener('mousemove', onCreatorMouseMove);
+canvas.addEventListener('mouseup', onCreatorMouseUp);
+canvas.addEventListener('mouseleave', onCreatorMouseUp);
+canvas.addEventListener('contextmenu', onCreatorContextMenu);
+document.getElementById('creatorModeBtn')?.addEventListener('click', () => {
+    closeOptions();
+    enterCreatorMode();
+});
+document.getElementById('creatorExitBtn')?.addEventListener('click', exitCreatorMode);
+document.getElementById('creatorDeleteBtn')?.addEventListener('click', () => {
+    creatorDeleteMode = !creatorDeleteMode;
+    const btn = document.getElementById('creatorDeleteBtn');
+    if (btn) btn.classList.toggle('selected', creatorDeleteMode);
+});
+document.getElementById('creatorTutorialOkBtn')?.addEventListener('click', () => {
+    document.getElementById('creatorTutorialOverlay')?.classList.add('hidden');
+    saveCreatorModeTutorialShown();
+});
+document.getElementById('creatorStartBtn')?.addEventListener('click', () => {
+    bricks = creatorBricks.length > 0 ? [creatorBricks.map(b => ({ ...b }))] : createBricks();
+    creatorMode = false;
+    creatorDragging = false;
+    creatorDragBrick = null;
+    creatorDeleteMode = false;
+    if (creatorLoopId) { cancelAnimationFrame(creatorLoopId); creatorLoopId = null; }
+    document.body.classList.remove('creator-mode');
+    document.getElementById('creatorOverlay')?.classList.add('hidden');
+    document.getElementById('creatorTutorialOverlay')?.classList.add('hidden');
+    score = 0; lives = 3; currentStage = 1;
+    updateStageUI(currentStage);
+    updateScoreUI(score);
+    updateLivesUI(lives);
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('gameOverOverlay')?.classList.add('hidden');
+    document.getElementById('winOverlay')?.classList.add('hidden');
+    gameRunning = true;
+    gamePaused = false;
+    ballLaunched = false;
+    ballStickTimer = 0;
+    hasBulletPower = false;
+    bullets = []; bossBullets = []; bossShields = []; damageNumbers = [];
+    fallingItems = []; activeItems = [];
+    paddle.x = (canvas.width - paddle.width) / 2;
+    mouseX = canvas.width / 2;
+    resetBall();
+    updateOptionsButtonVisibility();
+    updateBulletFireButtonVisibility();
+    showStageStartAndResume();
+});
+
 const storageAdminBtn = document.getElementById('storageAdminBtn');
 if (storageAdminBtn) storageAdminBtn.addEventListener('click', () => {
     const pwd = prompt('비밀번호를 입력하세요.');
@@ -2145,8 +2985,31 @@ if (diffEl) diffEl.addEventListener('change', () => {
     options.ballSpeed = currentStage === 6 ? cfg.stage6BallSpeed : cfg.ballSpeed;
 });
 
+function showTutorialOverlay() {
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('tutorialOverlay')?.classList.remove('hidden');
+}
+function hideTutorialOverlay() {
+    document.getElementById('tutorialOverlay')?.classList.add('hidden');
+}
 const startBtn = document.getElementById('startBtn');
-if (startBtn) startBtn.addEventListener('click', () => startGame(true));
+if (startBtn) startBtn.addEventListener('click', async () => {
+    if (BOSS4_TEST || BOSS5_TEST || BOSS6_TEST || STAGE4_ONLY || STAGE6_ONLY) {
+        startGame(true);
+        return;
+    }
+    const cleared = await hasClearedStage1(currentAccount);
+    if (cleared) {
+        startGame(true);
+    } else {
+        showTutorialOverlay();
+    }
+});
+const tutorialStartBtn = document.getElementById('tutorialStartBtn');
+if (tutorialStartBtn) tutorialStartBtn.addEventListener('click', () => {
+    hideTutorialOverlay();
+    startGame(true);
+});
 const continueBtn = document.getElementById('continueBtn');
 if (continueBtn) continueBtn.addEventListener('click', continueGame);
 const newGameBtn = document.getElementById('newGameBtn');
@@ -2157,7 +3020,7 @@ document.querySelectorAll('#resetMyRankingBtn, #resetMyRankingBtnWin').forEach(b
 document.querySelectorAll('#resetAllRankingBtn, #resetAllRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetAllRanking); });
 
 async function refreshAccountList(selectAccountName) {
-    if (STAGE6_ONLY || BOSS5_TEST) return;
+    if (STAGE6_ONLY || BOSS5_TEST || BOSS4_TEST) return;
     const statusEl = document.getElementById('loginConnectionStatus');
     try {
         const status = await isOnlineStorageAvailable();
@@ -2203,12 +3066,32 @@ async function doLogin() {
     }
     currentAccount = name;
     await loadOptionsForAccount(name);
+    stopLoginBGM();
     document.getElementById('loginOverlay')?.classList.add('hidden');
     const pwdInput = document.getElementById('passwordInput');
     if (pwdInput) pwdInput.value = '';
     const accDisplay = document.getElementById('currentAccountDisplay');
     if (accDisplay) accDisplay.textContent = '(' + name + ')';
     document.getElementById('startOverlay')?.classList.remove('hidden');
+    const editAccountBtn = document.getElementById('editAccountBtn');
+    if (editAccountBtn) editAccountBtn.style.display = '';
+    updateRotateOverlay();
+    updateExitButton();
+    if (isMobile()) enforceMobileLandscapeFullscreen();
+}
+
+function doGuestLogin() {
+    currentAccount = GUEST_ACCOUNT;
+    coins = parseInt(localStorage.getItem('guestCoins') || '0', 10);
+    options.coins = coins;
+    updateCoinsUI(coins);
+    stopLoginBGM();
+    document.getElementById('loginOverlay')?.classList.add('hidden');
+    const accDisplay = document.getElementById('currentAccountDisplay');
+    if (accDisplay) accDisplay.textContent = '(평범한 게스트)';
+    document.getElementById('startOverlay')?.classList.remove('hidden');
+    const editAccountBtn = document.getElementById('editAccountBtn');
+    if (editAccountBtn) editAccountBtn.style.display = 'none';
     updateRotateOverlay();
     updateExitButton();
     if (isMobile()) enforceMobileLandscapeFullscreen();
@@ -2283,6 +3166,13 @@ async function showCreateAccountModal() {
         if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
         const modal = document.getElementById('createAccountModal');
         if (modal) { modal.classList.remove('hidden'); modal.style.display = 'flex'; }
+        setupProfileCanvasDrawing('newProfileCanvas', 'newProfileClearBtn');
+        const newCanvas = document.getElementById('newProfileCanvas');
+        if (newCanvas) {
+            const ctx = newCanvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+        }
     } catch (e) {
         console.error('계정 새로 만들기 모달 열기 오류:', e);
         alert('모달을 열 수 없습니다.');
@@ -2328,6 +3218,81 @@ function hideCreateAccountModal() {
     if (modal) { modal.classList.add('hidden'); modal.style.display = ''; }
 }
 
+function getProfileCanvasDataUrl(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return '';
+    try {
+        return canvas.toDataURL('image/png');
+    } catch (e) { return ''; }
+}
+
+function loadProfileCanvas(canvasId, dataUrl) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !dataUrl) return;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = dataUrl;
+}
+
+function setupProfileCanvasDrawing(canvasId, clearBtnId, brushSizeInputId, brushSizeValId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    let isDrawing = false;
+    let currentColor = '#000000';
+    const brushInput = brushSizeInputId ? document.getElementById(brushSizeInputId) : null;
+    const brushValEl = brushSizeValId ? document.getElementById(brushSizeValId) : null;
+    function getBrushSize() {
+        if (brushInput) return Math.max(1, Math.min(12, parseInt(brushInput.value, 10) || 3));
+        return 3;
+    }
+    if (brushInput && brushValEl) {
+        brushInput.oninput = () => { brushValEl.textContent = brushInput.value; };
+        brushValEl.textContent = brushInput.value;
+    }
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX || (e.touches && e.touches[0]?.clientX) || 0) - rect.left;
+        const y = (e.clientY || (e.touches && e.touches[0]?.clientY) || 0) - rect.top;
+        return { x: Math.floor(x * scaleX), y: Math.floor(y * scaleY) };
+    }
+    function draw(x, y) {
+        const r = getBrushSize();
+        ctx.fillStyle = currentColor;
+        ctx.beginPath();
+        ctx.arc(Math.max(0, Math.min(x, canvas.width)), Math.max(0, Math.min(y, canvas.height)), r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    canvas.onmousedown = (e) => { isDrawing = true; const p = getPos(e); draw(p.x, p.y); };
+    canvas.onmousemove = (e) => { if (isDrawing) { const p = getPos(e); draw(p.x, p.y); } };
+    canvas.onmouseup = () => { isDrawing = false; };
+    canvas.onmouseleave = () => { isDrawing = false; };
+    canvas.ontouchstart = (e) => { e.preventDefault(); isDrawing = true; const p = getPos(e); draw(p.x, p.y); };
+    canvas.ontouchmove = (e) => { e.preventDefault(); if (isDrawing) { const p = getPos(e); draw(p.x, p.y); } };
+    canvas.ontouchend = () => { isDrawing = false; };
+    const wrap = canvas.closest('.profile-canvas-wrap');
+    if (wrap) {
+        wrap.querySelectorAll('.profile-color-btn').forEach(btn => {
+            btn.onclick = () => {
+                wrap.querySelectorAll('.profile-color-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentColor = btn.dataset.color || '#000000';
+            };
+        });
+    }
+    const clearBtn = document.getElementById(clearBtnId);
+    if (clearBtn) clearBtn.onclick = () => { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); };
+}
+
 function updateOptionsButtonVisibility() {
     const editEl = document.getElementById('editAccountModal');
     const editVisible = editEl && !editEl.classList.contains('hidden');
@@ -2338,12 +3303,32 @@ function updateOptionsButtonVisibility() {
     updateExitButton();
 }
 
+async function showEditProfileFromLogin() {
+    const name = (document.getElementById('accountSelect')?.value || '').trim();
+    const password = (document.getElementById('passwordInput')?.value || '').trim();
+    if (!name) { alert('계정 아이디를 입력하세요.'); return; }
+    if (!password) { alert('비밀번호를 입력하세요.'); return; }
+    try {
+        const acc = await getAccount(name);
+        if (!acc || acc.password !== password) {
+            alert('비밀번호가 올바르지 않습니다.');
+            return;
+        }
+        currentAccount = name;
+        await showEditAccountModal();
+    } catch (e) {
+        alert('계정 정보를 불러올 수 없습니다. ' + (e.message || ''));
+    }
+}
+
 async function showEditAccountModal() {
     if (!currentAccount) return;
     try {
         const acc = await getAccount(currentAccount);
         if (!acc) return;
     document.getElementById('editAccountNameDisplay').textContent = '계정: ' + currentAccount;
+    const editProfileEl = document.getElementById('editProfile');
+    if (editProfileEl) editProfileEl.value = acc.profile || '';
     document.getElementById('editCurrentPassword').value = '';
     document.getElementById('editNewPassword').value = '';
     document.getElementById('editNewPasswordConfirm').value = '';
@@ -2355,6 +3340,17 @@ async function showEditAccountModal() {
     document.getElementById('editCurrentPassword').type = 'password';
     document.getElementById('editNewPassword').type = 'password';
     document.getElementById('editNewPasswordConfirm').type = 'password';
+    setupProfileCanvasDrawing('editProfileCanvas', 'editProfileClearBtn', 'editProfileBrushSize', 'editProfileBrushSizeVal');
+    if (acc.profileImage) {
+        loadProfileCanvas('editProfileCanvas', acc.profileImage);
+    } else {
+        const editCanvas = document.getElementById('editProfileCanvas');
+        if (editCanvas) {
+            const ctx = editCanvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, editCanvas.width, editCanvas.height);
+        }
+    }
     document.getElementById('editAccountModal').classList.remove('hidden');
     updateOptionsButtonVisibility();
     } catch (e) {
@@ -2406,7 +3402,9 @@ async function handleEditAccount() {
         }
         if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
         const finalPassword = newPwd || currentPwd;
-        await saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer });
+        const profile = (document.getElementById('editProfile')?.value || '').trim();
+        const profileImage = getProfileCanvasDataUrl('editProfileCanvas') || '';
+        await saveAccount(currentAccount, { ...acc, password: finalPassword, question, hint, answer, profile: profile || '', profileImage });
         hideEditAccountModal();
         alert('계정 정보가 수정되었습니다.');
     } catch (e) {
@@ -2432,7 +3430,9 @@ async function handleCreateAccount() {
         if (pwd !== pwdConfirm) { alert('비밀번호가 일치하지 않습니다.'); return; }
         if (!question || !answer) { alert('비밀번호 찾기 질문과 답을 입력하세요.'); return; }
         if (await getAccount(name)) { alert('이미 존재하는 계정 이름입니다.'); return; }
-        await saveAccount(name, { password: pwd, question, hint, answer });
+        const profile = (document.getElementById('newProfile')?.value || '').trim();
+        const profileImage = getProfileCanvasDataUrl('newProfileCanvas') || '';
+        await saveAccount(name, { password: pwd, question, hint, answer, profile: profile || '', profileImage });
         await refreshAccountList(name);
         hideCreateAccountModal();
         document.getElementById('passwordInput').value = '';
@@ -2506,7 +3506,7 @@ async function handleFindPassword() {
 }
 
 function setupLoginHandlers() {
-    if (STAGE6_ONLY || BOSS5_TEST) return;
+    if (STAGE6_ONLY || BOSS5_TEST || BOSS4_TEST) return;
     const passwordInput = document.getElementById('passwordInput');
     if (passwordInput) passwordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') doLogin(); });
     const createAccountCancelBtn = document.getElementById('createAccountCancelBtn');
@@ -2621,9 +3621,9 @@ async function init() {
     updateFullscreenButton();
     if (isMobile() && isLandscape()) applyMobileLandscapeDimensions();
     applyOptions();
-    if (STAGE6_ONLY || BOSS6_TEST || BOSS5_TEST) {
-        currentStage = BOSS5_TEST ? 5 : 6;
-        currentAccount = BOSS5_TEST ? 'boss5_test' : (BOSS6_TEST ? 'boss6_test' : 'stage6');
+    if (STAGE6_ONLY || BOSS6_TEST || BOSS5_TEST || BOSS4_TEST) {
+        currentStage = BOSS4_TEST ? 4 : (BOSS5_TEST ? 5 : 6);
+        currentAccount = BOSS4_TEST ? 'boss4_test' : (BOSS5_TEST ? 'boss5_test' : (BOSS6_TEST ? 'boss6_test' : 'stage6'));
         bricks = createBricks();
         paddle.x = (canvas.width - paddle.width) / 2;
         paddle.y = canvas.height - 40;
@@ -2652,6 +3652,7 @@ async function init() {
     mouseX = canvas.width / 2;
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
+    startLoginBGM();
     try {
         await refreshAccountList();
     } catch (e) {
@@ -2670,6 +3671,7 @@ window.handleDeleteAccount = handleDeleteAccount;
 window.handleCreateAccount = handleCreateAccount;
 window.hideCreateAccountModal = hideCreateAccountModal;
 window.handleFindPassword = handleFindPassword;
+window.showEditProfileFromLogin = showEditProfileFromLogin;
 window.addEventListener('online', () => { refreshAccountList(); });
 
 if (document.readyState === 'loading') {

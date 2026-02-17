@@ -1,0 +1,182 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #0a0612;
+  font-family: 'Press Start 2P', monospace;
+  color: #e8e0f0;
+}
+
+#game-container {
+  position: relative;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  box-shadow: 0 0 40px rgba(138, 43, 226, 0.3);
+  border: 4px solid #4a2c6a;
+}
+
+#game-canvas {
+  display: block;
+  background: #1a0f2e;
+  width: 640px;
+  height: 480px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* 다이얼로그 */
+#dialog-box {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 4px solid #8b5cf6;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #e8e0f0;
+}
+
+#dialog-next {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  font-size: 8px;
+  animation: blink 0.8s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* 전투 UI */
+#battle-ui {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 6, 18, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+#battle-box {
+  width: 320px;
+  height: 200px;
+  border: 4px solid #8b5cf6;
+  background: rgba(26, 15, 46, 0.9);
+  position: relative;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+#soul {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: red;
+  border-radius: 50%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px red;
+  transition: left 0.05s, top 0.05s;
+}
+
+#battle-options {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+#battle-options button {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 10px 16px;
+  background: #2d1b4e;
+  color: #c4b5e0;
+  border: 3px solid #8b5cf6;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+#battle-options button:hover {
+  background: #4a2c6a;
+  color: #fff;
+  border-color: #a78bfa;
+}
+
+#battle-hp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 8px;
+}
+
+#hp-bar {
+  width: 120px;
+  height: 16px;
+  background: #1a0f2e;
+  border: 2px solid #8b5cf6;
+  overflow: hidden;
+}
+
+#hp-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  transition: width 0.3s;
+}
+
+#hp-value {
+  min-width: 60px;
+}
+
+/* 타이틀 화면 */
+#title-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #1a0f2e 0%, #0a0612 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+#title-screen h1 {
+  font-size: 28px;
+  color: #8b5cf6;
+  text-shadow: 0 0 20px rgba(139, 92, 246, 0.6);
+  letter-spacing: 4px;
+}
+
+#title-screen .subtitle {
+  font-size: 10px;
+  color: #a78bfa;
+}
+
+#start-prompt {
+  font-size: 8px;
+  margin-top: 40px;
+  animation: blink 1s infinite;
+  color: #c4b5e0;
+}

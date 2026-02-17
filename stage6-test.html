@@ -379,6 +379,8 @@
             margin: 15px 0;
             min-width: 200px;
             text-align: left;
+            max-height: 320px;
+            overflow-y: auto;
         }
         
         .ranking-box h3 {
@@ -559,6 +561,7 @@
             </div>
             <div class="overlay-buttons" style="margin-top:15px;">
                 <button type="button" class="btn" id="loginBtn" onclick="typeof doLogin==='function'&&doLogin()">로그인</button>
+                <button type="button" class="btn btn-small btn-outline" id="editProfileFromLoginBtn" onclick="typeof showEditProfileFromLogin==='function'&&showEditProfileFromLogin()">프로필 수정</button>
                 <button type="button" class="btn btn-small btn-outline" id="createAccountBtn" onclick="typeof showCreateAccountModal==='function'&&showCreateAccountModal()">계정 새로 만들기</button>
                 <button type="button" class="btn btn-small btn-outline" id="deleteAccountBtn" onclick="handleDeleteAccount()">계정 삭제</button>
                 <button type="button" class="btn btn-small btn-outline" id="findPasswordBtn" onclick="typeof showFindPasswordModal==='function'&&showFindPasswordModal()">비밀번호 찾기</button>
@@ -618,6 +621,7 @@
         <div id="editAccountModal" class="overlay hidden" style="z-index:25;">
             <h2>계정 정보 수정</h2>
             <p id="editAccountNameDisplay" style="margin:8px 0; color:#b8b8ff;"></p>
+            <input type="text" id="editProfile" placeholder="프로필 (순위에 표시됨)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
             <div class="input-with-toggle">
                 <input type="password" id="editCurrentPassword" placeholder="현재 비밀번호" maxlength="30" class="account-input" style="margin:8px 0;">
                 <button type="button" class="btn-toggle-pw" id="toggleEditCurrentPassword" title="비밀번호 보기">👁</button>
@@ -707,7 +711,8 @@
     <!-- 계정 모달: body 직계 자식으로 분리 (클릭/표시 문제 방지) -->
     <div id="createAccountModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
         <h2>계정 새로 만들기</h2>
-        <input type="text" id="newAccountName" placeholder="계정 이름" maxlength="20" class="account-input" style="margin:8px 0;">
+        <input type="text" id="newAccountName" placeholder="계정 아이디" maxlength="20" class="account-input" style="margin:8px 0;">
+        <input type="text" id="newProfile" placeholder="프로필 (순위에 표시됨, 예: 닉네임)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
         <div class="input-with-toggle">
             <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
             <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>
