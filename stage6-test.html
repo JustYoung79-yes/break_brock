@@ -63,6 +63,28 @@
             font-weight: 700;
         }
         
+        .lives-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .lives-bar-wrap .label { font-weight: 700; }
+        .lives-bar {
+            width: 72px;
+            height: 12px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid rgba(138, 43, 226, 0.4);
+        }
+        .lives-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 5px;
+            transition: width 0.25s ease;
+        }
+        .game-sidebar .lives-bar { width: 52px; height: 10px; }
+        
         canvas {
             display: block;
             background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
@@ -514,7 +536,7 @@
             <div class="info-bar info-top">
                 <span>스테이지: <span id="stage" class="stageVal">1</span></span>
                 <span>점수: <span id="score" class="scoreVal">0</span></span>
-                <span>생명: <span id="lives" class="livesVal">3</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" id="livesFill" style="width:100%"></div></div></span>
             </div>
             <canvas id="gameCanvas" width="800" height="600"></canvas>
             <p class="controls controls-bottom">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
@@ -531,7 +553,7 @@
             <div class="info-bar">
                 <span>스테이지: <span class="stageVal">1</span></span>
                 <span>점수: <span class="scoreVal">0</span></span>
-                <span>생명: <span class="livesVal">3</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" style="width:100%"></div></div></span>
             </div>
             <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
         </div>

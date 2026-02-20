@@ -79,9 +79,11 @@ function updateScoreUI(v) {
     if (!_uiScore) _uiScore = document.querySelectorAll('.scoreVal');
     _uiScore.forEach(el => { el.textContent = v; });
 }
-function updateLivesUI(v) {
+function updateLivesUI() {
     if (!_uiLives) _uiLives = document.querySelectorAll('.livesVal');
-    _uiLives.forEach(el => { el.textContent = v; });
+    const effectiveHealth = Math.max(0, lives - bossBulletDamageAccum);  // 보스 총알 0.2 데미지 반영
+    const pct = Math.min(100, Math.max(0, (effectiveHealth / 3) * 100));  // 3생명=100%, 2.8=93%, 1=33%
+    _uiLives.forEach(el => { el.style.width = pct + '%'; });
 }
 function updateCoinsUI(v) {
     if (!_uiCoins) _uiCoins = document.querySelectorAll('.coinVal');
@@ -182,6 +184,7 @@ let bullets = [];
 let bossBullets = [];
 let bossShields = [];  // { bossBrick } - 보스 주변 방어막, 공으로 때려야 제거
 let damageNumbers = [];  // { x, y, value, until } - 보스 타격 시 표시되는 데미지 숫자
+let bombExplosions = [];  // { x, y, radius, startTime, duration } - 폭탄 블록 폭발 이펙트
 let creatorMode = false;
 let creatorBricks = [];  // 만들기 모드용 벽돌 배열
 let creatorDragging = false;
@@ -198,12 +201,29 @@ let currentAccount = '';
 const GUEST_ACCOUNT = '__guest__';
 function isGuestAccount() { return currentAccount === GUEST_ACCOUNT; }
 let bricksHitThisFrame = new Set();
+let lastDestroyedBricksThisFrame = [];  // 스테이지1~4: 마지막 벽돌2개가 한 프레임에 파괴될 때 보스 변환용
 let bricksBrokenCount = 0;  // 14개마다 랜덤 보너스 (총알 13초 / 강화공 14초)
 let coins = 0;  // 벽돌당 2코인, 장비 구매에 사용
 let bossUpgrades = { ballSizeMult: 1, paddleSpeedMult: 1, explodeChance: 0, extraLife: 0 };  // 보스 처치 시 선택
 let minions = [];  // 스테이지4+ 부하몬스터
 let minionBullets = [];
 let awaitingBossUpgradeChoice = false;
+let awaitingMercyAttackChoice = false;
+let mercyAttackBossBrick = null;
+let ballDamageOverrideStage1to4 = null;  // 스테이지1~4 보스 체력 10일 때 9, 다음 스테이지에서 null
+let bossDustEffects = [];  // { x, y, vx, vy, alpha, until }
+let stage6DarkPhaseUntil = 0;   // 0=비활성, 아니면 밀리초 타임스탬프(9초간 어둠)
+let stage6DarkPhaseNextAt = 0;  // 다음 어둠 트리거 시각
+let stage56RecoveryItemTimer = 0;  // 스테이지5,6 회복아이템 20초 타이머
+let stage6ItemMessageUntil = 0;  // 스테이지6 아이템 떨어질 때 메시지 표시
+let stage6ItemMessageText = '';
+let stage5ChaosBlinkUntil = 0;   // 스테이지5 혼돈 효과: 공 깜박임 종료 시각
+let stage5ChaosTripleUntil = 0;  // 스테이지5 혼돈 효과: 3개→1개로 되돌릴 시각 (0=비활성)
+let stage5ScreenFlipNextAt = 0;  // 스테이지5 화면 뒤집기 다음 트리거 시각
+let stage5ScreenFlipped = false;
+let stage5ScytheNextAt = 0;      // 스테이지5 제낫 변신 다음 트리거 시각 (18초 주기)
+let stage5BossMottoNextAt = 0;  // 스테이지5 보스 "뭐든지 할수 있어!" 말풍선 다음 시각 (1초 주기)
+let paddleBossTouchCooldownUntil = 0;  // 판-보스 접촉 시 생명 감소 쿨다운 (1초)
 
 const STAGE5_BOSS_DEFEAT_MSG = '당신은 강해요 강해 빨라요 빨라 하지만 더 빨르고 더 강한게 있어요. 기사의 손이 다가옵니다. 잘 막을수 있을지! 흐하흐흐하흐ㅏㅎ';
 
@@ -230,16 +250,48 @@ function showStage5BossDefeatMessage() {
     }, 20000);
 }
 
+function showStage6BossDefeatWhiteFade() {
+    const overlayEl = document.getElementById('stage6WhiteFadeOverlay');
+    if (!overlayEl) {
+        showBossUpgradeChoice();
+        return;
+    }
+    overlayEl.classList.remove('hidden');
+    overlayEl.classList.remove('stage6-white');
+    setTimeout(() => {
+        overlayEl.classList.add('stage6-white');
+        setTimeout(() => {
+            overlayEl.classList.add('hidden');
+            overlayEl.classList.remove('stage6-white');
+            showBossUpgradeChoice();
+        }, 2100);
+    }, 100);
+}
+
 function showBossUpgradeChoice() {
     awaitingBossUpgradeChoice = true;
     gamePaused = true;
     document.getElementById('bossUpgradeOverlay')?.classList.remove('hidden');
 }
+
+function finishMercyAttackChoice() {
+    document.getElementById('mercyAttackOverlay')?.classList.add('hidden');
+    document.getElementById('stageMsgOverlay')?.classList.add('hidden');
+    awaitingMercyAttackChoice = false;
+    if (mercyAttackBossBrick) {
+        mercyAttackBossBrick.visible = false;
+        mercyAttackBossBrick = null;
+    }
+    minions = [];
+    minionBullets = [];
+    bossDustEffects = [];
+    showBossUpgradeChoice();
+}
 function applyBossUpgrade(choice) {
     if (choice === 'ballSize') bossUpgrades.ballSizeMult *= 1.13;
     else if (choice === 'paddleSpeed') bossUpgrades.paddleSpeedMult *= 1.12;
     else if (choice === 'explode') bossUpgrades.explodeChance = 0.1;
-    else if (choice === 'extraLife') { lives++; updateLivesUI(lives); bossUpgrades.extraLife++; }
+    else if (choice === 'extraLife') { lives++; updateLivesUI(); bossUpgrades.extraLife++; }
     else if (choice === 'bulletDuration') { hasBulletPower = true; activeItems.push({ type: 'bullet', duration: 300 }); updateBulletFireButtonVisibility(); }
     document.getElementById('bossUpgradeOverlay')?.classList.add('hidden');
     awaitingBossUpgradeChoice = false;
@@ -259,6 +311,17 @@ const paddle = {
     speed: 12
 };
 
+// 협동 모드: 위쪽 패들 (2P가 조종)
+let coopMode = false;
+const paddleTop = {
+    width: PADDLE_WIDTH,
+    height: PADDLE_HEIGHT,
+    x: 0,
+    y: 0,
+    baseWidth: PADDLE_WIDTH,
+    speed: 12
+};
+
 // 벽돌 색상
 const brickColors = ['#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff', '#5f27cd'];
 
@@ -267,7 +330,7 @@ const ITEM_TYPES = ['TRIPLE_BALL', 'BULLET', 'LIFE', 'PADDLE_2X', 'BALL_SLOW', '
 
 // 너프 타입 (보스 총알/너프블럭)
 const NERF_TYPES = ['PADDLE_SLOW', 'PADDLE_SMALL', 'BALL_FAST', 'GAME_FREEZE'];
-const NERF_DISPLAY_NAMES = { PADDLE_SLOW: '판 느림', PADDLE_SMALL: '판 축소', BALL_FAST: '공 빠름', GAME_FREEZE: '2초 멈춤' };
+const NERF_DISPLAY_NAMES = { PADDLE_SLOW: '판 느림', PADDLE_SMALL: '판 축소', BALL_FAST: '판 느림', GAME_FREEZE: '2초 멈춤' };
 // 보스 총알 효과: 다른 효과 2배 확률, 1초 멈춤 1배
 const BOSS_BULLET_NERF_WEIGHTS = [
     { type: 'PADDLE_SLOW', weight: 2 },
@@ -287,7 +350,7 @@ const BOSS_CONFIG = {
     2: { hp: 30, movePattern: 'lr', shootInterval: 0, shieldInterval: 0 },
     3: { hp: 40, movePattern: 'lr', shootInterval: 0, shieldInterval: 0 },
     4: { hp: 90, movePattern: 'free', shootInterval: 540, shieldInterval: 780 },   // 총알 9초마다, 방어막 13초
-    5: { hp: 200, movePattern: 'lr', shootInterval: 102, shieldInterval: 540 },  // 총알 1.7초마다, 방어막 9초
+    5: { hp: 600, movePattern: 'free', shootInterval: 102, shieldInterval: 540 },  // 대각선 포함 자유 이동, 총알 1.7초마다, 방어막 9초
     6: { hp: 1000, movePattern: 'curve', shootInterval: 60, shieldInterval: 300 } // 5초
 };
 
@@ -362,9 +425,9 @@ function createBossBrickOnly(stageKey, width, height) {
 }
 
 function createBricks() {
-    if (BOSS6_TEST) return createBossBrickOnly(6, 200, 200);
+    if (BOSS6_TEST) return createBossBrickOnly(6, 120, 120);
     if (BOSS4_TEST) return createBossBrickOnly(4, 80, 80);
-    if (BOSS5_TEST) return createBossBrickOnly(5, 80, 80);
+    if (BOSS5_TEST) return createBossBrickOnly(5, 130, 130);
     const config = STAGE_CONFIG[Math.min(currentStage - 1, STAGE_CONFIG.length - 1)];
     const rows = config.rows;
     const cols = config.cols;
@@ -498,6 +561,7 @@ let lastTouchX = 0;
 let creatorTouchStart = null;
 canvas.addEventListener('touchstart', (e) => {
     touchOnCanvas = true;
+    audioUnlockedByUser = true; // Android: 첫 터치로 오디오 잠금 해제
     unlockAudio();
     e.preventDefault();
     if (creatorMode && e.touches.length > 0) {
@@ -571,6 +635,7 @@ document.addEventListener('touchmove', (e) => {
 
 document.addEventListener('keydown', (e) => {
     if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+    if (coopMode && ['a', 'A', 'd', 'D'].includes(e.key)) e.preventDefault();
     if (e.key === ']') {
         e.preventDefault();
         const loginEl = document.getElementById('loginOverlay');
@@ -597,9 +662,11 @@ document.addEventListener('keyup', (e) => {
 function updatePaddle() {
     prevPaddleX = paddle.x;
     const speedMult = bossUpgrades.paddleSpeedMult || 1;
+    // 스테이지5 화면 뒤집힌 상태에서는 키 방향을 보정해, 누르는 방향과 화면에서 움직이는 방향이 같게
+    const flipKeys = currentStage === 5 && stage5ScreenFlipped;
     if (keys['ArrowLeft'] || keys['ArrowRight']) {
-        if (keys['ArrowLeft']) { paddle.x -= paddle.speed * speedMult; lastPaddleDirection = -1; }
-        if (keys['ArrowRight']) { paddle.x += paddle.speed * speedMult; lastPaddleDirection = 1; }
+        if (keys['ArrowLeft']) { paddle.x += (flipKeys ? 1 : -1) * paddle.speed * speedMult; lastPaddleDirection = flipKeys ? 1 : -1; }
+        if (keys['ArrowRight']) { paddle.x += (flipKeys ? -1 : 1) * paddle.speed * speedMult; lastPaddleDirection = flipKeys ? -1 : 1; }
         lastInputMethod = 'keyboard';
     } else if (lastInputMethod === 'mouse') {
         const targetX = mouseX - paddle.width / 2;
@@ -610,21 +677,29 @@ function updatePaddle() {
     }
     paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
     paddleMoving = Math.abs(paddle.x - prevPaddleX) > 0.3;
+    // 협동 모드: 2P가 위쪽 패들 조종 (A / D)
+    if (coopMode) {
+        if (keys['a'] || keys['A']) { paddleTop.x -= paddleTop.speed * speedMult; }
+        if (keys['d'] || keys['D']) { paddleTop.x += paddleTop.speed * speedMult; }
+        paddleTop.x = Math.max(0, Math.min(canvas.width - paddleTop.width, paddleTop.x));
+    }
 }
 
-// 공 각도를 20~70도(수직 기준)로 제한하여 측면 끼임 방지
+// 공 각도를 20~70도(수직 기준)로 제한하여 측면 끼임/모서리 끼임 방지
 function clampBallAngle(dx, dy) {
     const speed = Math.sqrt(dx * dx + dy * dy);
-    if (speed < 0.001) return { dx, dy };
+    const minSpeed = (options.ballSpeed || 5) * 0.5;
+    const useSpeed = speed < 0.001 ? minSpeed : speed;
     const tilt = Math.atan2(Math.abs(dx), Math.abs(dy)) * 180 / Math.PI;
-    const clampedTilt = Math.max(20, Math.min(70, tilt));
+    const clampedTilt = tilt < 15 ? 80 : Math.max(25, Math.min(70, tilt));
     const rad = clampedTilt * Math.PI / 180;
     const signX = dx >= 0 ? 1 : -1;
     const signY = dy >= 0 ? 1 : -1;
-    return {
-        dx: signX * speed * Math.sin(rad),
-        dy: signY * speed * Math.cos(rad)
-    };
+    let outDx = signX * useSpeed * Math.sin(rad);
+    let outDy = signY * useSpeed * Math.cos(rad);
+    const minDx = useSpeed * 0.35;
+    if (Math.abs(outDx) < minDx) outDx = (outDx >= 0 ? 1 : -1) * minDx;
+    return { dx: outDx, dy: outDy };
 }
 
 function launchBall() {
@@ -696,6 +771,25 @@ function vibrateBrickBreak() {
     }
 }
 
+function playHurtSound() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        const t = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(100, t);
+        osc.frequency.exponentialRampToValueAtTime(50, t + 0.08);
+        osc.type = 'triangle';
+        gain.gain.setValueAtTime(0.2, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        osc.start(t);
+        osc.stop(t + 0.08);
+    } catch (e) {}
+}
+
 function playItemPickupSound() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const prevVol = bgmAudio ? bgmAudio.volume : 1;
@@ -754,17 +848,7 @@ function applyNerfEffect(type) {
             activeItems.push({ type: 'paddleSmall', duration });
             break;
         case 'BALL_FAST':
-            activeItems = activeItems.filter(i => i.type !== 'ballSlow');
-            balls.forEach(b => {
-                const s = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
-                if (s > 0.001) {
-                    const baseSpeed = options.ballSpeed;
-                    const mult = (baseSpeed * 2) / s;
-                    b.dx *= mult;
-                    b.dy *= mult;
-                }
-            });
-            activeItems.push({ type: 'ballFast', duration });
+            activeItems.push({ type: 'paddleSlow', duration });
             break;
         case 'GAME_FREEZE':
             activeItems.push({ type: 'paddleFreeze', duration: 120 });  // 2초 멈춤
@@ -780,8 +864,8 @@ function applyItemEffect(type) {
     playItemPickupSound();
     switch (type) {
         case 'LIFE':
-            lives++;
-            updateLivesUI(lives);
+            lives += (currentStage === 6 ? 2 : 1);
+            updateLivesUI();
             break;
         case 'PADDLE_2X':
             paddle.width = Math.min(paddle.baseWidth * 2, canvas.width * 0.8);
@@ -934,7 +1018,16 @@ function isBossInvincible(brick) {
 }
 
 function getBallDamage() {
-    return currentStage >= 6 ? 90 : 10;  // 스테이지6: 90, 이하: 10
+    const warriorMult = (currentAccount === '용사') ? 2.3 : 1;
+    let dmg;
+    if (currentStage <= 4 && ballDamageOverrideStage1to4 !== null)
+        dmg = Math.round(ballDamageOverrideStage1to4 * (1 + (options.forgeAttack ?? 0) * 0.2));
+    else {
+        const base = currentStage >= 6 ? 90 : (currentStage === 5 ? 30 : 10);
+        const mult = 1 + (options.forgeAttack ?? 0) * 0.2;
+        dmg = Math.round(base * mult);
+    }
+    return Math.round(dmg * warriorMult);
 }
 function hitBrick(brick, isBullet = false) {
     if (bricksHitThisFrame.has(brick)) return;
@@ -943,6 +1036,15 @@ function hitBrick(brick, isBullet = false) {
     if (brick.isBoss && (isBossInvincible(brick) || hitInvincible)) return;
     let damage = brick.isBoss ? (isBullet ? 1 : (Math.random() < 0.18 ? 20 : getBallDamage())) : 1;
     brick.hp = Math.max(0, brick.hp - damage);
+    if (brick.isBoss && currentStage <= 4 && brick.hp === 10) ballDamageOverrideStage1to4 = 9;
+    if (brick.isBoss && currentStage <= 4 && brick.hp <= 1 && !brick.mercyChoiceTriggered) {
+        brick.mercyChoiceTriggered = true;
+        brick.hp = 1;
+        awaitingMercyAttackChoice = true;
+        mercyAttackBossBrick = brick;
+        gamePaused = true;
+        document.getElementById('mercyAttackOverlay')?.classList.remove('hidden');
+    }
     if (brick.isBoss && !isBullet && damage > 0) {
         damageNumbers.push({
             x: brick.x + brick.width / 2, y: brick.y + brick.height / 2,
@@ -963,7 +1065,7 @@ function hitBrick(brick, isBullet = false) {
         brick.bossInvinciblePhase = true;
     }
     if (brick.isBoss && !isBullet) {
-        brick.bossHitInvincibleUntil = Date.now() + 300;  // 공 맞을 때 0.3초 무적
+        brick.bossHitInvincibleUntil = Date.now() + 1000;  // 공 맞을 때 1초 무적
         if (currentStage <= 3 && damage > 0) {
             brick.bossSpeechText = '아야!';
             brick.bossSpeechUntil = Date.now() + 1500;
@@ -985,8 +1087,9 @@ function hitBrick(brick, isBullet = false) {
         setTimeout(() => explodeNearbyBricks(brick), 50);
     }
     if (brick.hp <= 0) {
+        if (!brick.isBoss && currentStage <= 4) lastDestroyedBricksThisFrame.push(brick);
         brick.visible = false;
-        if (!brick.isBoss) { coins += 2; updateCoinsUI(coins); }
+        if (!brick.isBoss) { coins += 8; updateCoinsUI(coins); }
         if (brick.isItem && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
         if (brick.isNerf && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
         if (brick.isBomb) setTimeout(() => explodeNearbyBricks(brick), 400);
@@ -995,7 +1098,10 @@ function hitBrick(brick, isBullet = false) {
             minions = [];
             minionBullets = [];
             if (currentStage === 5) {
+                setStage5Cleared();
                 showStage5BossDefeatMessage();
+            } else if (currentStage === 6) {
+                showStage6BossDefeatWhiteFade();
             } else {
                 showBossUpgradeChoice();
             }
@@ -1032,7 +1138,7 @@ function destroyBrickWithoutHit(brick) {
     }
     brick.hp = 0;
     brick.visible = false;
-    coins += 2;
+    coins += 8;
     updateCoinsUI(coins);
     if (brick.isItem && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
     if (brick.isNerf && brick.itemType) spawnFallingItem(brick.x + brick.width/2, brick.y, brick.itemType);
@@ -1043,6 +1149,7 @@ function explodeNearbyBricks(centerBrick) {
     const cx = centerBrick.x + centerBrick.width / 2;
     const cy = centerBrick.y + centerBrick.height / 2;
     const radius = centerBrick.width * 2.2;
+    bombExplosions.push({ x: cx, y: cy, radius: radius * 0.5, startTime: Date.now(), duration: 450 });
     bricks.forEach(row => {
         row.forEach(brick => {
             if (!brick || !brick.visible || brick === centerBrick || brick.isBoss) return;
@@ -1055,10 +1162,39 @@ function explodeNearbyBricks(centerBrick) {
 }
 
 function updateBoss(dt = 1) {
+    if (currentStage === 5 || currentStage === 6) {
+        stage56RecoveryItemTimer += dt;
+        if (stage56RecoveryItemTimer >= 1200) {
+            stage56RecoveryItemTimer = 0;
+            const centerX = 24 + Math.random() * (canvas.width - 48);
+            spawnFallingItem(centerX, 0, 'LIFE');
+            if (currentStage === 6) {
+                stage6ItemMessageUntil = Date.now() + 3500;
+                stage6ItemMessageText = Math.random() < 0.24 ? '누군가 당신을 도와줬다' : '지금까지 만나왔던 적이 당신을 도와줬다';
+            }
+        }
+    } else {
+        stage56RecoveryItemTimer = 0;
+    }
     const cfg = BOSS_CONFIG[currentStage] || BOSS_CONFIG[1];
+    const now = Date.now();
     bricks.forEach(row => {
         row.forEach(brick => {
             if (!brick || !brick.visible || !brick.isBoss) return;
+            const inScytheMode = currentStage === 5 && brick.bossScytheUntil && now < brick.bossScytheUntil;
+            if (currentStage === 5) {
+                if (stage5ScytheNextAt <= 0) stage5ScytheNextAt = now + 18000;
+                if (!inScytheMode && now >= stage5ScytheNextAt) {
+                    brick.bossScytheUntil = now + 500;  // 제낫 모드 0.5초
+                    stage5ScytheNextAt = now + 18000;
+                }
+                if (stage5BossMottoNextAt <= 0) stage5BossMottoNextAt = now + 1000;
+                if (now >= stage5BossMottoNextAt) {
+                    stage5BossMottoNextAt = now + 1000;
+                    brick.bossSpeechText = '뭐든지 할수 있어!';
+                    brick.bossSpeechUntil = now + 1500;
+                }
+            }
             const r = Math.min(brick.width, brick.height) / 2;
             const cx = brick.x + brick.width / 2, cy = brick.y + brick.height / 2;
             if (brick.width !== brick.height) {
@@ -1070,7 +1206,7 @@ function updateBoss(dt = 1) {
             const isInvincible = isBossInvincible(brick) || (brick.bossHitInvincibleUntil && Date.now() < brick.bossHitInvincibleUntil);
             if ((currentStage === 5 || currentStage === 6) && brick.bossBaseSize) {
                 const baseSize = brick.bossBaseSize;
-                const newSize = (currentStage === 5) ? baseSize * 0.7 : baseSize;
+                const newSize = (currentStage === 5) ? baseSize * 0.95 : baseSize;
                 const cx = brick.x + brick.width / 2, cy = brick.y + brick.height / 2;
                 brick.width = brick.height = newSize;
                 brick.radius = newSize / 2;
@@ -1080,17 +1216,40 @@ function updateBoss(dt = 1) {
             brick.bossShootTimer = (brick.bossShootTimer || 0) + dt;
             if (currentStage === 5) {
                 brick.bossSpeechTimer = (brick.bossSpeechTimer || 0) + dt;
-                if (brick.bossSpeechTimer >= 4000) {
+                if (brick.bossSpeechTimer >= 2200) {
                     brick.bossSpeechTimer = 0;
                     brick.bossSpeechText = '혼돈이야! 혼돈이야!';
                     brick.bossSpeechUntil = Date.now() + 2000;
+                    // 혼돈 대사 시 랜덤 효과: 1=공 깜박임, 2=공 3개→1개
+                    if (Math.random() < 0.5) {
+                        stage5ChaosBlinkUntil = Date.now() + 3500;
+                    } else {
+                        if (ballLaunched && balls.length >= 1 && balls.length <= 3) {
+                            const main = balls[0];
+                            const spd = Math.sqrt(main.dx * main.dx + main.dy * main.dy) || options.ballSpeed;
+                            while (balls.length < 3) {
+                                const sign = balls.length === 1 ? 1 : -1;
+                                balls.push({ x: main.x, y: main.y, radius: BALL_RADIUS, dx: spd * 0.7 * sign, dy: -spd * 0.7 });
+                            }
+                            stage5ChaosTripleUntil = Date.now() + 4500;
+                        }
+                    }
                 }
             } else if (currentStage === 6) {
                 brick.bossSpeechTimer = (brick.bossSpeechTimer || 0) + dt;
-                if (brick.bossSpeechTimer >= 5000) {
+                if (brick.bossSpeechTimer >= 180) {
                     brick.bossSpeechTimer = 0;
-                    brick.bossSpeechText = '374ㄷ$^ㄴ66664';
+                    brick.bossSpeechText = '어둠';
                     brick.bossSpeechUntil = Date.now() + 2000;
+                }
+                const now = Date.now();
+                if (stage6DarkPhaseNextAt <= 0) stage6DarkPhaseNextAt = now + 30000;
+                if (stage6DarkPhaseUntil <= 0 && now >= stage6DarkPhaseNextAt) {
+                    stage6DarkPhaseUntil = now + 9000;
+                    stage6DarkPhaseNextAt = now + 30000;
+                }
+                if (stage6DarkPhaseUntil > 0 && now >= stage6DarkPhaseUntil) {
+                    stage6DarkPhaseUntil = 0;
                 }
             }
             if (currentStage >= 4) {
@@ -1112,26 +1271,33 @@ function updateBoss(dt = 1) {
             }
             const shootInt = (brick.hp === 1 ? cfg.shootInterval / 2 : cfg.shootInterval);
             const bulletDy = (brick.hp === 1 ? 6 : 3);
-            if (cfg.shootInterval > 0 && brick.bossShootTimer >= shootInt) {
+            if (!inScytheMode && cfg.shootInterval > 0 && brick.bossShootTimer >= shootInt) {
                 brick.bossShootTimer = 0;
                 let bulletType = null;
-                const bw = currentStage === 4 ? 720 : (currentStage === 5 ? Math.round(304 * 0.36 * 0.3) : 8);
-                const bh = currentStage === 5 ? Math.round(456 * 0.36 * 0.4) : 12;
-                let bulletX = brick.x + brick.width / 2 - bw / 2;
-                let bulletY = brick.y + brick.height;
+                let bulletX, bulletY, bulletW, bulletH;
                 if (currentStage === 4) {
                     brick.bossStage4BulletToggle = !brick.bossStage4BulletToggle;
                     bulletType = brick.bossStage4BulletToggle ? 'orange' : 'blue';
                     brick.bossSpeechText = bulletType === 'orange' ? '안 움직이지마!' : '움직이지마!';
                     brick.bossSpeechUntil = Date.now() + 2000;
-                    bulletX = Math.max(0, Math.min(canvas.width - bw, canvas.width / 2 - bw / 2));
+                    bulletX = 0;
                     bulletY = 0;
+                    bulletW = canvas.width;
+                    bulletH = 24;
+                } else {
+                    const bw = currentStage === 5 ? Math.round(304 * 0.36 * 0.3) : (currentStage === 6 ? 48 : 8);
+                    const bh = currentStage === 5 ? Math.round(456 * 0.36 * 0.4) : (currentStage === 6 ? 72 : 12);
+                    const size = Math.max(bw, bh);
+                    bulletX = brick.x + brick.width / 2 - size / 2;
+                    bulletY = brick.y + brick.height;
+                    bulletW = size;
+                    bulletH = size;
                 }
                 bossBullets.push({
                     x: bulletX,
                     y: bulletY,
-                    width: bw,
-                    height: bh,
+                    width: bulletW,
+                    height: bulletH,
                     dy: bulletDy,
                     stage4Type: bulletType
                 });
@@ -1139,10 +1305,22 @@ function updateBoss(dt = 1) {
             let speedMult = brick.hp === 1 ? 0.5 : 2;  // 에너지 1: 반속, 에너지 2+: 2배
             if (currentStage === 6 && isInvincible) speedMult *= 2;  // 스테이지6 무적 시 2배
             if (currentStage <= 3) speedMult *= 0.2;  // 스테이지 1,2,3은 많이 느리게
-            if (cfg.movePattern === 'lr') {
+            if (inScytheMode) {
+                const targetX = paddle.x + paddle.width / 2 - brick.width / 2;
+                // 보스가 판과 실제로 겹치도록: 보스 하단이 판 안쪽으로 들어가게 (판-보스 접촉 시 생명 감소 트리거)
+                const targetY = paddle.y - brick.height / 2 + 10;
+                const spd = 2.4 * (dt / 16);  // 제낫 모드 시 판 추적 속도
+                const dx = targetX - (brick.x + brick.width / 2);
+                const dy = targetY - (brick.y + brick.height / 2);
+                const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                const moveCap = 65;  // 프레임당 최대 이동량
+                brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x + (dx / dist) * spd * Math.min(dist, moveCap)));
+                brick.y = Math.max(BRICK_OFFSET_TOP, Math.min(canvas.height - brick.height, brick.y + (dy / dist) * spd * Math.min(dist, moveCap)));
+            } else if (cfg.movePattern === 'lr') {
                 brick.bossVx = brick.bossVx || 2;
                 brick.x += brick.bossVx * speedMult;
                 if (brick.x <= 0 || brick.x + brick.width >= canvas.width) brick.bossVx = -brick.bossVx;
+                brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x));
             } else if (cfg.movePattern === 'free') {
                 brick.bossVx = brick.bossVx || 1.5;
                 brick.bossVy = brick.bossVy || 1;
@@ -1150,6 +1328,8 @@ function updateBoss(dt = 1) {
                 brick.y += brick.bossVy * speedMult * dt;
                 if (brick.x <= 0 || brick.x + brick.width >= canvas.width) brick.bossVx = -brick.bossVx;
                 if (brick.y <= BRICK_OFFSET_TOP || brick.y + brick.height >= canvas.height - 100) brick.bossVy = -brick.bossVy;
+                brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x));
+                brick.y = Math.max(BRICK_OFFSET_TOP, Math.min(canvas.height - 100 - brick.height, brick.y));
             } else if (cfg.movePattern === 'curve') {
                 const baseVel = 1.2;
                 brick.bossVx = brick.bossVx ?? (baseVel * (Math.random() > 0.5 ? 1 : -1));
@@ -1177,6 +1357,8 @@ function updateBoss(dt = 1) {
                 }
                 brick.x += brick.bossVx * speedMult;
                 brick.y += brick.bossVy * speedMult;
+                brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x));
+                brick.y = Math.max(BRICK_OFFSET_TOP, Math.min(canvas.height - 100 - brick.height, brick.y));
                 if (brick.x <= 0) {
                     brick.x = 1;
                     brick.bossVx = Math.abs(brick.bossVx) * (0.9 + Math.random() * 1.2);
@@ -1201,8 +1383,8 @@ function updateBoss(dt = 1) {
                     brick.bossVy *= maxSpeed / s;
                 }
             }
-            // 공 피하기: 공이 보스 쪽으로 올 때 가로로 회피
-            if (ballLaunched && balls.length > 0 && cfg.movePattern !== 'none') {
+            // 공 피하기: 공이 보스 쪽으로 올 때 가로로 회피 (제낫 모드가 아닐 때만)
+            if (!inScytheMode && ballLaunched && balls.length > 0 && cfg.movePattern !== 'none') {
                 const bcx = brick.x + brick.width / 2, bcy = brick.y + brick.height / 2;
                 const baseDodge = 1.5;
                 const DODGE_SPEED = currentStage <= 3 ? baseDodge * 0.2 : baseDodge;
@@ -1217,6 +1399,22 @@ function updateBoss(dt = 1) {
                         brick.x = Math.max(0, Math.min(canvas.width - brick.width, brick.x + dodge));
                         break;
                     }
+                }
+            }
+        });
+    });
+    // 판이 보스에 닿으면 생명 1 감소 (쿨다운 1초)
+    bricks.forEach(row => {
+        row.forEach(brick => {
+            if (!brick || !brick.visible || !brick.isBoss) return;
+            if (brick.x + brick.width > paddle.x && brick.x < paddle.x + paddle.width &&
+                brick.y + brick.height > paddle.y && brick.y < paddle.y + paddle.height) {
+                if (now > paddleBossTouchCooldownUntil) {
+                    paddleBossTouchCooldownUntil = now + 1000;
+                    lives--;
+                    updateLivesUI();
+                    if (typeof playHurtSound === 'function') playHurtSound();
+                    if (lives <= 0) handleDeath();
                 }
             }
         });
@@ -1238,6 +1436,11 @@ function updateBoss(dt = 1) {
         if (b.y > canvas.height) return false;
         if (b.y + b.height > paddle.y && b.y < paddle.y + paddle.height &&
             b.x + b.width > paddle.x && b.x < paddle.x + paddle.width) {
+            applyNerfEffect(pickRandomBossBulletNerf());
+            return false;
+        }
+        if (coopMode && b.y + b.height > paddleTop.y && b.y < paddleTop.y + paddleTop.height &&
+            b.x + b.width > paddleTop.x && b.x < paddleTop.x + paddleTop.width) {
             applyNerfEffect(pickRandomBossBulletNerf());
             return false;
         }
@@ -1269,7 +1472,7 @@ function updateBullets(dt = 1) {
                 if (b.x + b.width > minion.x && b.x < minion.x + minion.width &&
                     yMax > minion.y && yMin < minion.y + minion.height) {
                     minion.hp = 0;
-                    coins += 2;
+                    coins += 8;
                     updateCoinsUI(coins);
                     hit = true;
                     break;
@@ -1283,23 +1486,60 @@ function updateBullets(dt = 1) {
         if (b.y > canvas.height) return false;
         if (b.y + b.height > paddle.y && b.y < paddle.y + paddle.height &&
             b.x + b.width > paddle.x && b.x < paddle.x + paddle.width) {
-            bossBulletDamageAccum += 0.03;
-            damageNumbers.push({
-                x: paddle.x + paddle.width / 2,
-                y: paddle.y - 25,
-                value: '-0.03',
-                until: Date.now() + 1000
-            });
-            while (bossBulletDamageAccum >= 1) {
-                bossBulletDamageAccum -= 1;
-                lives--;
-                updateLivesUI(lives);
-                if (lives <= 0) gameOver();
-                else resetBall();
+            let shouldTakeDamage = true;
+            if (currentStage === 4 && b.stage4Type) {
+                if (b.stage4Type === 'blue') {
+                    shouldTakeDamage = paddleMoving;
+                } else if (b.stage4Type === 'orange') {
+                    shouldTakeDamage = !paddleMoving;
+                }
+            }
+            if (shouldTakeDamage) {
+                const dmg = Math.max(0.05, 0.2 - (options.forgeDefense ?? 0) * 0.05);
+                bossBulletDamageAccum += dmg;
+                playHurtSound();
+                updateLivesUI();
+                damageNumbers.push({
+                    x: paddle.x + paddle.width / 2,
+                    y: paddle.y - 25,
+                    value: '-' + dmg.toFixed(2),
+                    until: Date.now() + 1000
+                });
+                const threshold = 1 + (options.forgeHealth ?? 0) * 0.2;
+                while (bossBulletDamageAccum >= threshold) {
+                    bossBulletDamageAccum -= threshold;
+                    lives--;
+                    updateLivesUI();
+                    if (lives <= 0) handleDeath();
+                    else resetBall();
+                }
             }
             if (!b.isBomb && !(currentStage === 4 && (b.stage4Type === 'orange' || b.stage4Type === 'blue'))) {
                 applyNerfEffect(pickRandomBossBulletNerf());
             }
+            return false;
+        }
+        if (coopMode && b.y + b.height > paddleTop.y && b.y < paddleTop.y + paddleTop.height &&
+            b.x + b.width > paddleTop.x && b.x < paddleTop.x + paddleTop.width) {
+            const dmg = Math.max(0.05, 0.2 - (options.forgeDefense ?? 0) * 0.05);
+            bossBulletDamageAccum += dmg;
+            playHurtSound();
+            updateLivesUI();
+            damageNumbers.push({
+                x: paddleTop.x + paddleTop.width / 2,
+                y: paddleTop.y + paddleTop.height + 5,
+                value: '-' + dmg.toFixed(2),
+                until: Date.now() + 1000
+            });
+            const threshold = 1 + (options.forgeHealth ?? 0) * 0.2;
+            while (bossBulletDamageAccum >= threshold) {
+                bossBulletDamageAccum -= threshold;
+                lives--;
+                updateLivesUI();
+                if (lives <= 0) handleDeath();
+                else resetBall();
+            }
+            if (!b.isBomb) applyNerfEffect(pickRandomBossBulletNerf());
             return false;
         }
         return true;
@@ -1309,10 +1549,11 @@ function updateBullets(dt = 1) {
 function resetBall() {
     ballLaunched = false;
     ballStickTimer = 0;
-    const speed = options.ballSpeed;
+    const ballY = Math.max(BALL_RADIUS + 5, Math.min(canvas.height - BALL_RADIUS - 5, paddle.y - BALL_RADIUS - 5));
+    const ballX = Math.max(BALL_RADIUS, Math.min(canvas.width - BALL_RADIUS, paddle.x + paddle.width / 2));
     balls = [{
-        x: canvas.width / 2,
-        y: paddle.y - BALL_RADIUS - 5,
+        x: ballX,
+        y: ballY,
         dx: 0,
         dy: 0,
         radius: BALL_RADIUS
@@ -1321,9 +1562,42 @@ function resetBall() {
 
 function updateBall(dt = 1) {
     bricksHitThisFrame.clear();
+    lastDestroyedBricksThisFrame = [];
     updateFallingItems(dt);
     updateBullets(dt);
     updateBoss(dt);
+
+    // 스테이지5 혼돈 효과: 3개→1개 시 1개는 진짜(핑크), 나머지는 가짜(빨강). 가짜는 판 통과.
+    if (currentStage === 5 && stage5ChaosTripleUntil > 0 && Date.now() >= stage5ChaosTripleUntil) {
+        stage5ChaosTripleUntil = 0;
+        if (balls.length > 1) {
+            balls[0].stage5Fake = false;  // 진짜 (핑크)
+            for (let i = 1; i < balls.length; i++) balls[i].stage5Fake = true;  // 가짜 (빨강, 판 통과)
+        }
+    }
+
+    // 스테이지5 40초마다 화면 뒤집기
+    if (currentStage === 5) {
+        const now = Date.now();
+        if (stage5ScreenFlipNextAt <= 0) stage5ScreenFlipNextAt = now + 25000;
+        if (now >= stage5ScreenFlipNextAt) {
+            stage5ScreenFlipNextAt = now + 25000;
+            stage5ScreenFlipped = !stage5ScreenFlipped;
+            const el = document.querySelector('.game-main');
+            if (el) el.style.transform = stage5ScreenFlipped ? 'rotate(180deg)' : '';
+        }
+    } else {
+        if (stage5ScreenFlipped) {
+            stage5ScreenFlipped = false;
+            const el = document.querySelector('.game-main');
+            if (el) el.style.transform = '';
+        }
+        stage5ScreenFlipNextAt = 0;
+        stage5ChaosBlinkUntil = 0;
+        stage5ChaosTripleUntil = 0;
+        stage5ScytheNextAt = 0;
+        stage5BossMottoNextAt = 0;
+    }
 
     if (!ballLaunched && balls.length > 0) {
         balls[0].x = paddle.x + paddle.width / 2;
@@ -1346,49 +1620,93 @@ function updateBall(dt = 1) {
             ball.dx = -ball.dx;
             const c = clampBallAngle(ball.dx, ball.dy);
             ball.dx = c.dx; ball.dy = c.dy;
+            ball.x = Math.max(r, Math.min(canvas.width - r, ball.x));
         }
-        if (ball.y - r < 0) {
+        // 협동 모드: 위쪽 패들에 맞으면 아래로 반사, 상단 이탈 시 생명 감소
+        if (coopMode) {
+            if (!ball.stage5Fake &&
+                ball.y - r < paddleTop.y + paddleTop.height &&
+                ball.y + r > paddleTop.y &&
+                ball.x > paddleTop.x &&
+                ball.x < paddleTop.x + paddleTop.width &&
+                ball.dy < 0) {
+                const hitPos = Math.max(-1, Math.min(1, (ball.x - (paddleTop.x + paddleTop.width / 2)) / (paddleTop.width / 2)));
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                const angleDeg = 20 + 50 * Math.abs(hitPos);
+                const angleRad = angleDeg * Math.PI / 180;
+                ball.dx = (hitPos >= 0 ? 1 : -1) * speed * Math.sin(angleRad);
+                ball.dy = speed * Math.cos(angleRad);
+                const c = clampBallAngle(ball.dx, ball.dy);
+                ball.dx = c.dx; ball.dy = c.dy;
+            } else if (ball.y - r < 0) {
+                const wasReal = !ball.stage5Fake;
+                balls.splice(bi, 1);
+                if (wasReal) {
+                    const hasRealLeft = balls.some(b => !b.stage5Fake);
+                    if (!hasRealLeft) {
+                        playHurtSound();
+                        lives--;
+                        updateLivesUI();
+                        if (lives <= 0) handleDeath();
+                        else resetBall();
+                    }
+                }
+            }
+        } else if (ball.y - r < 0) {
             ball.dy = -ball.dy;
             const c = clampBallAngle(ball.dx, ball.dy);
             ball.dx = c.dx; ball.dy = c.dy;
+            ball.y = Math.max(r, ball.y);
         }
+        ball.x = Math.max(r, Math.min(canvas.width - r, ball.x));
+        if (ball.y < r && !coopMode) ball.y = r;
 
         if (ball.y + r > paddle.y &&
             ball.y - r < paddle.y + paddle.height &&
             ball.x > paddle.x &&
             ball.x < paddle.x + paddle.width) {
-            const hitPos = Math.max(-1, Math.min(1, (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2)));
-            const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
-            const angleDeg = 20 + 50 * Math.abs(hitPos);
-            const angleRad = angleDeg * Math.PI / 180;
-            ball.dx = (hitPos >= 0 ? 1 : -1) * speed * Math.sin(angleRad);
-            ball.dy = -speed * Math.cos(angleRad);
-            const c = clampBallAngle(ball.dx, ball.dy);
-            ball.dx = c.dx; ball.dy = c.dy;
+            if (!ball.stage5Fake) {
+                const hitPos = Math.max(-1, Math.min(1, (ball.x - (paddle.x + paddle.width / 2)) / (paddle.width / 2)));
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                const angleDeg = 20 + 50 * Math.abs(hitPos);
+                const angleRad = angleDeg * Math.PI / 180;
+                ball.dx = (hitPos >= 0 ? 1 : -1) * speed * Math.sin(angleRad);
+                ball.dy = -speed * Math.cos(angleRad);
+                const c = clampBallAngle(ball.dx, ball.dy);
+                ball.dx = c.dx; ball.dy = c.dy;
+            }
+            // 가짜 공은 판에 닿지 않고 통과
         }
 
         if (ball.y + r > canvas.height) {
+            const wasReal = !ball.stage5Fake;
             balls.splice(bi, 1);
-            if (balls.length === 0) {
-                lives--;
-                updateLivesUI(lives);
-                if (lives <= 0) {
-                    gameOver();
-                } else {
-                    resetBall();
+            if (wasReal) {
+                const hasRealLeft = balls.some(b => !b.stage5Fake);
+                if (!hasRealLeft) {
+                    playHurtSound();
+                    lives--;
+                    updateLivesUI();
+                    if (lives <= 0) {
+                        handleDeath();
+                    } else {
+                        resetBall();
+                    }
                 }
             }
+            // 가짜 공은 하단 이탈 시 제거만, 생명 감소 없음
         }
     }
 
     balls.forEach(ball => {
+        if (ball.stage5Fake) return;
         let ballHit = false;
         const r = ball.radius * ballRadiusMult;
         for (const minion of minions) {
             if (ball.x + r > minion.x && ball.x - r < minion.x + minion.width &&
                 ball.y + r > minion.y && ball.y - r < minion.y + minion.height) {
                 minion.hp = 0;
-                coins += 2;
+                coins += 8;
                 updateCoinsUI(coins);
                 const dx = ball.x - (minion.x + minion.width / 2);
                 const dy = ball.y - (minion.y + minion.height / 2);
@@ -1480,6 +1798,25 @@ function updateBall(dt = 1) {
             bossBrick.bossBaseSize = size;
         }
     }
+    // 마지막 벽돌 2개가 한 프레임에 파괴되어 보스 변환을 건너뛴 경우: 하나를 보스로 부활
+    if (visibleCount === 0 && currentStage <= 4 && lastDestroyedBricksThisFrame.length > 0) {
+        const bossBrick = lastDestroyedBricksThisFrame[0];
+        if (bossBrick) {
+            const cfg = BOSS_CONFIG[currentStage] || BOSS_CONFIG[1];
+            bossBrick.visible = true;
+            bossBrick.isBoss = true;
+            bossBrick.hp = cfg.hp;
+            bossBrick.maxHp = cfg.hp;
+            const baseMult = currentStage === 6 ? 3.8 : 3;
+            const size = Math.min(bossBrick.width, bossBrick.height) * baseMult;
+            bossBrick.x += (bossBrick.width - size) / 2;
+            bossBrick.y += (bossBrick.height - size) / 2;
+            bossBrick.width = size;
+            bossBrick.height = size;
+            bossBrick.radius = size / 2;
+            bossBrick.bossBaseSize = size;
+        }
+    }
 
     const allBricksGone = bricks.every(row => row.every(brick => !brick || !brick.visible));
     if (allBricksGone && !awaitingBossUpgradeChoice) {
@@ -1507,6 +1844,7 @@ function endStage3OnlyTest() {
     minions = [];
     minionBullets = [];
     damageNumbers = [];
+    bombExplosions = [];
     bulletAutoFireFrame = 0;
     paddle.width = paddle.baseWidth;
     paddle.speed = options.paddleSpeed;
@@ -1531,6 +1869,7 @@ function endStage4OnlyTest() {
     bossBullets = [];
     bossShields = [];
     damageNumbers = [];
+    bombExplosions = [];
     bulletAutoFireFrame = 0;
     paddle.width = paddle.baseWidth;
     paddle.speed = options.paddleSpeed;
@@ -1545,7 +1884,10 @@ function endStage4OnlyTest() {
     }
 }
 
+let stageClearInProgress = false;
 function showStageClearAndNext() {
+    if (stageClearInProgress) return;
+    stageClearInProgress = true;
     const justClearedStage1 = currentStage === 1;
     gameRunning = false;
     cancelAnimationFrame(animationId);
@@ -1556,6 +1898,7 @@ function showStageClearAndNext() {
     bossBullets = [];
     bossShields = [];
     damageNumbers = [];
+    bombExplosions = [];
     bulletAutoFireFrame = 0;
     paddle.width = paddle.baseWidth;
     paddle.speed = options.paddleSpeed;
@@ -1575,6 +1918,7 @@ function showStageClearAndNext() {
     saveCoins();
     setTimeout(() => {
         if (resetBtn) { resetBtn.style.display = 'none'; }
+        ballDamageOverrideStage1to4 = null;
         currentStage++;
         updateStageUI(currentStage);
         if (currentStage === 6) {
@@ -1584,6 +1928,7 @@ function showStageClearAndNext() {
         bricks = createBricks();
         resetBall();
         showStageStartAndResume();
+        stageClearInProgress = false;
     }, 2000);
 }
 
@@ -1664,9 +2009,18 @@ const stage5BossBulletImage = new Image();
 stage5BossBulletImage.onload = onImageLoad;
 stage5BossBulletImage.src = PATH.image + '제빌의 공격.png';
 
+const stage5ScytheImage = new Image();
+stage5ScytheImage.onload = onImageLoad;
+stage5ScytheImage.onerror = () => { stage5ScytheImage.src = PATH.image + 'Boss.png'; };
+stage5ScytheImage.src = PATH.image + '제낫.png';
+
 const stage6BgImage = new Image();
 stage6BgImage.onload = onImageLoad;
 stage6BgImage.src = PATH.image + '스테이지6배경화면.png';
+
+const stage6BossBulletImage = new Image();
+stage6BossBulletImage.onload = onImageLoad;
+stage6BossBulletImage.src = PATH.image + '최종보스 공격.png';
 
 function drawPaddle() {
     const skin = PADDLE_SKINS.find(s => s.id === (options.paddleSkin || 'default')) || PADDLE_SKINS[0];
@@ -1696,17 +2050,52 @@ function drawPaddle() {
     ctx.stroke();
 }
 
+function drawPaddleTop() {
+    if (!coopMode) return;
+    // 2P 위쪽 패들 (구별용 초록 계열)
+    const cols = ['#48dbfb', '#0abde3'];
+    const gradient = ctx.createLinearGradient(paddleTop.x, 0, paddleTop.x + paddleTop.width, 0);
+    gradient.addColorStop(0, cols[0]);
+    gradient.addColorStop(0.5, cols[1]);
+    gradient.addColorStop(1, cols[0]);
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    const cx = paddleTop.x + paddleTop.width / 2;
+    const cy = paddleTop.y;
+    const a = paddleTop.width / 2;
+    const b = paddleTop.height * 0.8;
+    ctx.moveTo(paddleTop.x, cy);
+    ctx.ellipse(cx, cy, a, b, 0, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
 function drawBall() {
     const powerBallActive = activeItems.some(i => i.type === 'powerBall');
     const rMult = (powerBallActive ? 1.5 : 1) * (bossUpgrades.ballSizeMult || 1);
     const skin = BALL_SKINS.find(s => s.id === (options.ballSkin || 'default')) || BALL_SKINS[0];
+    const stage5Blink = currentStage === 5 && Date.now() < stage5ChaosBlinkUntil;
+    if (stage5Blink) ctx.save();
+    const stage5FakePhase = currentStage === 5 && balls.some(b => b.stage5Fake);
     balls.forEach(ball => {
+        if (stage5Blink) ctx.globalAlpha = Math.floor(Date.now() / 120) % 2 === 0 ? 0.35 : 1;
         const r = ball.radius * rMult;
         const gradient = ctx.createRadialGradient(
             ball.x - 3, ball.y - 3, 0,
             ball.x, ball.y, r
         );
-        if (powerBallActive) {
+        if (ball.stage5Fake) {
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.5, '#ff6666');
+            gradient.addColorStop(1, '#cc0000');
+        } else if (stage5FakePhase) {
+            gradient.addColorStop(0, '#ffc0cb');
+            gradient.addColorStop(0.5, '#ff69b4');
+            gradient.addColorStop(1, '#db7093');
+        } else if (powerBallActive) {
             gradient.addColorStop(0, '#ffffff');
             gradient.addColorStop(0.5, '#ff6666');
             gradient.addColorStop(1, '#cc0000');
@@ -1729,6 +2118,7 @@ function drawBall() {
         ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
         ctx.fill();
     });
+    if (stage5Blink) ctx.restore();
 }
 
 function drawFallingItems() {
@@ -1790,6 +2180,8 @@ function drawBullets() {
             ctx.fillRect(b.x, b.y, b.width, b.height);
         } else if (currentStage === 5 && stage5BossBulletImage.complete && stage5BossBulletImage.naturalWidth > 0) {
             ctx.drawImage(stage5BossBulletImage, Math.floor(b.x), Math.floor(b.y), Math.floor(b.width), Math.floor(b.height));
+        } else if (currentStage === 6 && stage6BossBulletImage.complete && stage6BossBulletImage.naturalWidth > 0) {
+            ctx.drawImage(stage6BossBulletImage, Math.floor(b.x), Math.floor(b.y), Math.floor(b.width), Math.floor(b.height));
         } else if (b.isBomb && bombImage.complete && bombImage.naturalWidth > 0) {
             ctx.drawImage(bombImage, b.x, b.y, b.width, b.height);
         } else {
@@ -1841,7 +2233,8 @@ function drawBricks() {
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
                     ctx.clip();
-                    const img = (currentStage === 1 || currentStage === 2) ? earlyBossImage : (currentStage === 3 ? stage3BossImage : (currentStage === 4 ? stage4BossImage : (currentStage === 5 ? stage5BossImage : (currentStage === 6 ? stage6BossImage : bossImage))));
+                    const stage5Scythe = currentStage === 5 && brick.bossScytheUntil && Date.now() < brick.bossScytheUntil;
+                    const img = (currentStage === 1 || currentStage === 2) ? earlyBossImage : (currentStage === 3 ? stage3BossImage : (currentStage === 4 ? stage4BossImage : (currentStage === 5 ? (stage5Scythe && stage5ScytheImage.complete && stage5ScytheImage.naturalWidth > 0 ? stage5ScytheImage : stage5BossImage) : (currentStage === 6 ? stage6BossImage : bossImage))));
                     if (img.complete && img.naturalWidth > 0) {
                         ctx.drawImage(img, Math.floor(cx - r), Math.floor(cy - r), Math.floor(size), Math.floor(size));
                     } else {
@@ -1972,6 +2365,23 @@ function drawBossShields() {
     });
 }
 
+function drawStage6ItemMessage() {
+    if (currentStage !== 6 || Date.now() >= stage6ItemMessageUntil) return;
+    ctx.save();
+    ctx.font = 'bold 20px "Noto Sans KR", sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.95)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const txt = stage6ItemMessageText || '지금까지 만나왔던 적이 당신을 도와줬다';
+    const x = canvas.width / 2;
+    const y = 80;
+    ctx.strokeText(txt, x, y);
+    ctx.fillText(txt, x, y);
+    ctx.restore();
+}
+
 function drawDamageNumbers() {
     const now = Date.now();
     damageNumbers = damageNumbers.filter(d => {
@@ -1981,6 +2391,33 @@ function drawDamageNumbers() {
         ctx.fillStyle = '#ff0000';
         ctx.textAlign = 'center';
         ctx.fillText(String(d.value), d.x, d.y - 10);
+        ctx.restore();
+        return true;
+    });
+}
+
+function drawBombExplosions() {
+    const now = Date.now();
+    bombExplosions = bombExplosions.filter(e => {
+        const elapsed = now - e.startTime;
+        if (elapsed >= e.duration) return false;
+        const t = elapsed / e.duration;
+        const expand = 1 + t * 2.5;
+        const alpha = 1 - t;
+        const r = e.radius * expand;
+        ctx.save();
+        const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+        g.addColorStop(0, `rgba(255, 200, 50, ${alpha * 0.9})`);
+        g.addColorStop(0.4, `rgba(255, 100, 0, ${alpha * 0.6})`);
+        g.addColorStop(0.7, `rgba(255, 50, 0, ${alpha * 0.3})`);
+        g.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 255, 150, ${alpha * 0.5})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
         ctx.restore();
         return true;
     });
@@ -2054,12 +2491,15 @@ function draw() {
     drawBackgroundOverDestroyedBricks();
     drawBricks();
     drawPaddle();
+    if (coopMode) drawPaddleTop();
     drawFallingItems();
     drawBullets();
     drawBall();
     drawActiveItemEffects();
     drawBossShields();
     drawBossHPBar();
+    drawBombExplosions();
+    drawStage6ItemMessage();
     drawDamageNumbers();
     minions.forEach(m => {
         if (currentStage >= 4 && gladeImage.complete && gladeImage.naturalWidth > 0) {
@@ -2080,13 +2520,40 @@ function draw() {
         ctx.fillRect(b.x, b.y, b.width, b.height);
     });
 
+    const now = Date.now();
+    if (bossDustEffects.length > 0) {
+        bossDustEffects = bossDustEffects.filter(p => {
+            const elapsed = now - (p.startTime || now);
+            if (elapsed >= (p.duration || 800)) return false;
+            p.x += p.vx;
+            p.y += p.vy;
+            const pAlpha = 1 - elapsed / (p.duration || 800);
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, pAlpha);
+            ctx.fillStyle = '#aaa';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            return true;
+        });
+    }
+
+    if (currentStage === 6 && stage6DarkPhaseUntil > Date.now()) {
+        ctx.fillStyle = 'rgba(0,0,0,0.95)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawPaddle();
+        if (coopMode) drawPaddleTop();
+        if (Math.floor(Date.now() / 150) % 2 === 0) drawBall();
+    }
+
     if (screenShakeIntensity > 0.1) ctx.restore();
     screenShakeIntensity *= 0.75;
 }
 
 function isAnyPauseOverlayVisible() {
     if (typeof document !== 'undefined' && document.hidden) return true;
-    const ids = ['optionsPanel', 'stageMsgOverlay', 'bossUpgradeOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'bossUpgradeOverlay', 'mercyAttackOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el && !el.classList.contains('hidden')) return true;
@@ -2139,9 +2606,16 @@ function applyOptions() {
     paddle.y = canvas.height - 40;
     paddle.baseWidth = PADDLE_WIDTH * (options.canvasWidth / 800);
     paddle.width = paddle.baseWidth;
+    // 협동 모드: 위쪽 패들 위치/크기
+    paddleTop.y = 10;
+    paddleTop.baseWidth = PADDLE_WIDTH * (options.canvasWidth / 800);
+    paddleTop.width = paddleTop.baseWidth;
+    paddleTop.height = PADDLE_HEIGHT;
+    paddleTop.speed = options.paddleSpeed;
 }
 
 function startGame(isNewGame = true) {
+    stageClearInProgress = false;
     applyOptions();
     gameRunning = true;
     gamePaused = false;
@@ -2154,13 +2628,19 @@ function startGame(isNewGame = true) {
     bossBullets = [];
     bossShields = [];
     damageNumbers = [];
+    bombExplosions = [];
     activeItems = [];
     bricksBrokenCount = 0;
     bossUpgrades = { ballSizeMult: 1, paddleSpeedMult: 1, explodeChance: 0, extraLife: 0 };
     bossBulletDamageAccum = 0;
+    ballDamageOverrideStage1to4 = null;
     if (isNewGame) {
         score = 0;
         lives = 3;
+        stage6DarkPhaseUntil = 0;
+        stage6DarkPhaseNextAt = 0;
+        stage56RecoveryItemTimer = 0;
+        stage6ItemMessageUntil = 0;
         currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : (BOSS5_TEST ? 5 : (BOSS4_TEST || STAGE4_ONLY ? 4 : (STAGE3_ONLY ? 3 : 1)));
         updateStageUI(currentStage);
         bricks = createBricks();
@@ -2176,16 +2656,19 @@ function startGame(isNewGame = true) {
         bricks = createBricks();
     }
     updateScoreUI(score);
-    updateLivesUI(lives);
+    updateLivesUI();
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('gameOverOverlay')?.classList.add('hidden');
     document.getElementById('winOverlay')?.classList.add('hidden');
+    document.getElementById('mercyAttackOverlay')?.classList.add('hidden');
     coins = options.coins ?? coins;
+    setMaxCoins(Math.max(getMaxCoins(), coins));
     updateCoinsUI(coins);
     updateOptionsButtonVisibility();
     updateBulletFireButtonVisibility();
     if (isMobile()) enforceMobileLandscapeFullscreen();
     paddle.x = (canvas.width - paddle.width) / 2;
+    if (coopMode) paddleTop.x = (canvas.width - paddleTop.width) / 2;
     mouseX = canvas.width / 2;
     resetBall();
     applyEquipmentAtStart();
@@ -2234,6 +2717,7 @@ function restartGame() {
 let audioCtx = null;
 let bgmAudio = null;
 let loginBgmAudio = null;
+let audioUnlockedByUser = false; // Android WebView: 사용자 터치 전 오디오 차단 방지용
 
 // 스테이지별 배경음악 (6스테이지는 Stage5 사용)
 const BGM_FILES = [
@@ -2270,6 +2754,22 @@ function startLoginBGM() {
     loginBgmAudio.loop = true;
     loginBgmAudio.volume = 0.5;
     loginBgmAudio.play().catch(() => {});
+}
+
+// Android WebView: 사용자 터치 전에는 오디오가 차단됨. 첫 터치 시 BGM 시작
+function startLoginBGMOrSchedule() {
+    if (audioUnlockedByUser) {
+        startLoginBGM();
+        return;
+    }
+    const onFirstInteraction = () => {
+        audioUnlockedByUser = true;
+        document.removeEventListener('touchstart', onFirstInteraction);
+        document.removeEventListener('click', onFirstInteraction);
+        startLoginBGM();
+    };
+    document.addEventListener('touchstart', onFirstInteraction, { once: true, passive: true });
+    document.addEventListener('click', onFirstInteraction, { once: true });
 }
 
 function startBGM(stage) {
@@ -2468,7 +2968,10 @@ const DEFAULT_OPTIONS = {
     canvasHeight: 600,
     paddleSkin: 'default',
     ballSkin: 'default',
-    language: 'ko'
+    language: 'ko',
+    forgeHealth: 0,
+    forgeAttack: 0,
+    forgeDefense: 0
 };
 
 async function loadOptionsForAccount(accountName) {
@@ -2490,12 +2993,21 @@ async function loadOptionsForAccount(accountName) {
         options.language = saved.language ?? DEFAULT_OPTIONS.language;
         options.coins = saved.coins ?? 0;
         options.equipment = Array.isArray(saved.equipment) ? saved.equipment : [];
+        options.equipmentOwned = Array.isArray(saved.equipmentOwned) ? saved.equipmentOwned : (Array.isArray(saved.equipment) ? [...saved.equipment] : []);
+        options.forgeHealth = saved.forgeHealth ?? 0;
+        options.forgeAttack = saved.forgeAttack ?? 0;
+        options.forgeDefense = saved.forgeDefense ?? 0;
     } else {
         Object.assign(options, DEFAULT_OPTIONS);
         options.coins = options.coins ?? 0;
         options.equipment = options.equipment ?? [];
+        options.equipmentOwned = options.equipmentOwned ?? (options.equipment?.length ? [...options.equipment] : []);
+        options.forgeHealth = options.forgeHealth ?? 0;
+        options.forgeAttack = options.forgeAttack ?? 0;
+        options.forgeDefense = options.forgeDefense ?? 0;
     }
     coins = options.coins;
+    setMaxCoins(Math.max(getMaxCoins(), coins));
     updateCoinsUI(coins);
     const diffEl = document.getElementById('difficulty');
     if (diffEl) diffEl.value = options.difficulty || 'easy';
@@ -2539,12 +3051,17 @@ async function saveOptionsToAccount() {
             ballSkin: options.ballSkin ?? 'default',
             language: options.language ?? 'ko',
             coins: options.coins ?? 0,
-            equipment: options.equipment ?? []
+            equipment: options.equipment ?? [],
+            equipmentOwned: options.equipmentOwned ?? [],
+            forgeHealth: options.forgeHealth ?? 0,
+            forgeAttack: options.forgeAttack ?? 0,
+            forgeDefense: options.forgeDefense ?? 0
         }
     });
 }
 
 function saveCoins() {
+    setMaxCoins(Math.max(getMaxCoins(), coins));
     if (isGuestAccount()) {
         try { localStorage.setItem('guestCoins', String(coins)); } catch (e) {}
     } else if (currentAccount) {
@@ -2666,7 +3183,91 @@ async function resetRankingUI() {
     if (celebration) celebration.classList.add('hidden');
 }
 
-function gameOver() {
+const REVIVE_MESSAGES = [
+    '지금은 죽을 시간이 아니야. 일어나.',
+    '너만이 희망이야. 일어나.'
+];
+
+const STORAGE_PREFIX = 'bb_';
+function getTotalDeaths() {
+    try { return Math.max(0, parseInt(localStorage.getItem(STORAGE_PREFIX + 'totalDeaths') || '0', 10)); } catch (e) { return 0; }
+}
+function incrementTotalDeaths() {
+    const n = getTotalDeaths() + 1;
+    try { localStorage.setItem(STORAGE_PREFIX + 'totalDeaths', String(n)); } catch (e) {}
+    return n;
+}
+function getMaxCoins() {
+    try { return Math.max(0, parseInt(localStorage.getItem(STORAGE_PREFIX + 'maxCoins') || '0', 10)); } catch (e) { return 0; }
+}
+function setMaxCoins(v) {
+    const prev = getMaxCoins();
+    if (v <= prev) return;
+    try { localStorage.setItem(STORAGE_PREFIX + 'maxCoins', String(v)); } catch (e) {}
+}
+function getStage5Cleared() {
+    try { return localStorage.getItem(STORAGE_PREFIX + 'stage5Cleared') === '1'; } catch (e) { return false; }
+}
+function setStage5Cleared() {
+    try { localStorage.setItem(STORAGE_PREFIX + 'stage5Cleared', '1'); } catch (e) {}
+}
+
+const ACHIEVEMENTS = [
+    { id: 'firstDeath', name: '첫번째 죽음', desc: '한 번 죽으면 달성할 수 있어', check: () => getTotalDeaths() >= 1 },
+    { id: 'death10', name: '10번째 죽음', desc: '열 번 죽으면 달성할 수 있어', check: () => getTotalDeaths() >= 10 },
+    { id: 'rich', name: '부자', desc: '코인이 10000개가 되면 달성할 수 있어', check: () => getMaxCoins() >= 10000 },
+    { id: 'chaos', name: '혼돈', desc: '스테이지5를 클리어하면 달성할 수 있어', check: () => getStage5Cleared() },
+    { id: 'death100', name: '내가 이렇게 못했었나?', desc: '100번 죽으면 달성할 수 있어', check: () => getTotalDeaths() >= 100 }
+];
+
+function handleDeath() {
+    const n = incrementTotalDeaths();
+    if (n >= 100) {
+        gameOver(true);
+    } else {
+        startReviveSequence();
+    }
+}
+
+function startReviveSequence() {
+    cancelAnimationFrame(animationId);
+    stopBGM();
+    const overlayEl = document.getElementById('reviveOverlay');
+    const textEl = document.getElementById('reviveOverlayText');
+    if (!overlayEl || !textEl) {
+        lives = 1;
+        updateLivesUI();
+        resetBall();
+        draw();
+        animationId = requestAnimationFrame(gameLoop);
+        return;
+    }
+    const total = getTotalDeaths();
+    const msg = total === 99 ? '너 만큼 못하는사람은 없었는데?' : REVIVE_MESSAGES[Math.floor(Math.random() * REVIVE_MESSAGES.length)];
+    textEl.textContent = msg;
+    overlayEl.classList.remove('hidden');
+    overlayEl.classList.remove('revive-white');
+    textEl.style.opacity = '1';
+
+    setTimeout(() => {
+        overlayEl.classList.add('revive-white');
+        setTimeout(() => {
+            paddle.y = canvas.height - 40;
+            paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x));
+            lives = 1;
+            updateLivesUI();
+            resetBall();
+            startBGM(currentStage);
+            overlayEl.classList.add('hidden');
+            overlayEl.classList.remove('revive-white');
+            textEl.style.opacity = '1';
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }, 1600);
+    }, 2500);
+}
+
+function gameOver(show100DeathMessage) {
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
@@ -2676,6 +3277,11 @@ function gameOver() {
     document.getElementById('finalScore').textContent = score;
     const overlayEl = document.getElementById('gameOverOverlay');
     const rankingEl = document.getElementById('rankingDisplay');
+    const msg100El = document.getElementById('gameOver100DeathText');
+    if (msg100El) {
+        msg100El.textContent = show100DeathMessage ? '너 만큼 못하는사람은 없었는데?' : '';
+        msg100El.style.display = show100DeathMessage ? '' : 'none';
+    }
     if (rankingEl) rankingEl.innerHTML = '<h3>🏆 점수 순위</h3><p>순위 불러오는 중...</p>';
     if (overlayEl) overlayEl.classList.remove('hidden');
     (async () => {
@@ -2757,35 +3363,91 @@ function playVictoryMusic() {
     });
 }
 
-function initEquipmentShop() {
-    const grid = document.getElementById('equipmentShopGrid');
+const FORGE_ITEMS = [
+    { id: 'forgeHealth', name: '체력 +0.2', desc: '생명 1 감소까지 필요한 데미지 증가', price: 150, emoji: '❤️' },
+    { id: 'forgeAttack', name: '공격력 +0.2', desc: '벽돌/보스에게 주는 데미지 20% 증가', price: 150, emoji: '⚔️' },
+    { id: 'forgeDefense', name: '방어력 +0.05', desc: '보스 총알 피해 감소', price: 150, emoji: '🛡️' }
+];
+
+function initForgeShop() {
+    const grid = document.getElementById('forgeGrid');
     if (!grid) return;
     const c = options.coins ?? coins ?? 0;
     document.querySelectorAll('.coinVal').forEach(el => { el.textContent = c; });
-    const owned = options.equipment || [];
-    grid.innerHTML = EQUIPMENT_ITEMS.map(item => {
-        const has = owned.includes(item.id);
-        const canBuy = !has && c >= item.price && (currentAccount && !isGuestAccount());
+    grid.innerHTML = FORGE_ITEMS.map(item => {
+        const level = options[item.id] ?? 0;
+        const canBuy = c >= item.price && (currentAccount && !isGuestAccount());
         return `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(0,0,0,0.3); border-radius:8px;">
-            <div><span>${item.emoji}</span> <strong>${item.name}</strong> - ${item.desc}<br><small>${item.price} 코인</small></div>
-            <button type="button" class="btn btn-small ${has ? 'btn-outline' : ''}" ${has ? 'disabled' : ''} data-eq="${item.id}" data-price="${item.price}">${has ? '보유중' : (canBuy ? '구매' : '코인 부족')}</button>
+            <div><span>${item.emoji}</span> <strong>${item.name}</strong> - ${item.desc}<br><small>${item.price} 코인 · Lv.${level}</small></div>
+            <button type="button" class="btn btn-small" data-forge="${item.id}" data-price="${item.price}">${canBuy ? '강화' : '코인 부족'}</button>
         </div>`;
     }).join('');
-    grid.querySelectorAll('button[data-eq]').forEach(btn => {
-        if (btn.disabled) return;
-        const id = btn.dataset.eq;
+    grid.querySelectorAll('button[data-forge]').forEach(btn => {
+        const id = btn.dataset.forge;
         const price = parseInt(btn.dataset.price, 10);
         btn.addEventListener('click', async () => {
             const bal = options.coins ?? coins ?? 0;
             if (bal < price) { alert('코인이 부족합니다.'); return; }
-            if (isGuestAccount()) { alert('장비 구매는 로그인이 필요합니다.'); return; }
+            if (isGuestAccount()) { alert('대장간 강화는 로그인이 필요합니다.'); return; }
             options.coins = Math.max(0, bal - price);
-            options.equipment = [...(options.equipment || []), id];
+            options[id] = (options[id] ?? 0) + 1;
             coins = options.coins;
             await saveOptionsToAccount();
             updateCoinsUI(coins);
+            initForgeShop();
             initEquipmentShop();
-            initShopUI();
+        });
+    });
+}
+
+function initEquipmentShop() {
+    const grid = document.getElementById('equipmentShopGrid');
+    if (!grid) return;
+    const bal = options.coins ?? coins ?? 0;
+    document.querySelectorAll('.coinVal').forEach(el => { el.textContent = bal; });
+    const owned = options.equipmentOwned || options.equipment || [];
+    const equippedId = (options.equipment && options.equipment[0]) || null;
+    grid.innerHTML = EQUIPMENT_ITEMS.map(item => {
+        const isOwned = owned.includes(item.id);
+        const isEquipped = equippedId === item.id;
+        const canBuy = !isOwned && bal >= item.price && (currentAccount && !isGuestAccount());
+        let btnText = '코인 부족';
+        let btnDisabled = false;
+        let btnAction = 'buy';
+        if (isEquipped) { btnText = '착용중'; btnDisabled = true; btnAction = 'none'; }
+        else if (isOwned) { btnText = '착용'; btnAction = 'equip'; }
+        else if (canBuy) { btnText = '구매'; btnAction = 'buy'; }
+        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(0,0,0,0.3); border-radius:8px;">
+            <div><span>${item.emoji}</span> <strong>${item.name}</strong> - ${item.desc}<br><small>${item.price} 코인</small></div>
+            <button type="button" class="btn btn-small ${isEquipped ? 'btn-outline' : ''}" ${btnDisabled ? 'disabled' : ''} data-eq="${item.id}" data-price="${item.price}" data-action="${btnAction}">${btnText}</button>
+        </div>`;
+    }).join('');
+    grid.querySelectorAll('button[data-eq]').forEach(btn => {
+        const id = btn.dataset.eq;
+        const price = parseInt(btn.dataset.price, 10);
+        const action = btn.dataset.action;
+        if (action === 'none') return;
+        btn.addEventListener('click', async () => {
+            if (isGuestAccount()) { alert('장비 구매는 로그인이 필요합니다.'); return; }
+            if (action === 'equip') {
+                options.equipment = [id];
+                await saveOptionsToAccount();
+                initEquipmentShop();
+                initShopUI();
+                return;
+            }
+            if (action === 'buy') {
+                const b = options.coins ?? coins ?? 0;
+                if (b < price) { alert('코인이 부족합니다.'); return; }
+                options.coins = Math.max(0, b - price);
+                coins = options.coins;
+                options.equipmentOwned = [...(options.equipmentOwned || options.equipment || []), id];
+                options.equipment = [id];
+                await saveOptionsToAccount();
+                updateCoinsUI(coins);
+                initEquipmentShop();
+                initShopUI();
+            }
         });
     });
 }
@@ -2846,8 +3508,25 @@ function openOptions() {
     const ssEl = document.getElementById('screenSize');
     if (ssEl) ssEl.value = (isMobile() && options.canvasWidth <= 960) ? 'mobile' : options.canvasWidth === 640 ? 'small' : options.canvasWidth === 960 ? 'large' : 'medium';
     initShopUI();
+    initForgeShop();
     initEquipmentShop();
+    updateAchievementsList();
     document.getElementById('optionsPanel')?.classList.remove('hidden');
+}
+
+function updateAchievementsList() {
+    const container = document.getElementById('achievementsList');
+    if (!container) return;
+    container.innerHTML = '';
+    ACHIEVEMENTS.forEach(a => {
+        const done = a.check();
+        const row = document.createElement('div');
+        row.className = 'option-row';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.innerHTML = '<span style="font-size:1.2rem;">' + (done ? '✅' : '⬜') + '</span><div><strong>' + a.name + '</strong><br><span style="font-size:0.85rem; color:#b8b8ff;">' + a.desc + '</span></div>';
+        container.appendChild(row);
+    });
 }
 
 const optionsBtn = document.getElementById('optionsBtn');
@@ -2979,6 +3658,235 @@ function closeOptions() {
 }
 const optionsCloseBtn = document.getElementById('optionsCloseBtn');
 if (optionsCloseBtn) optionsCloseBtn.addEventListener('click', closeOptions);
+
+// ========== 미니게임 ==========
+function openMinigameTetris() {
+    const overlay = document.getElementById('minigameTetrisOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    document.getElementById('optionsPanel')?.classList.add('hidden');
+    startTetris();
+}
+function openMinigameTouchTycoon() {
+    const overlay = document.getElementById('minigameTouchTycoonOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    document.getElementById('optionsPanel')?.classList.add('hidden');
+    startTouchTycoon();
+}
+
+const TETRIS_COLS = 10;
+const TETRIS_ROWS = 20;
+const TETRIS_BLOCK = 20;
+let tetrisGrid, tetrisPiece, tetrisNext, tetrisScore, tetrisInterval, tetrisLoopId;
+const TETRIS_SHAPES = {
+    I: [[1,1,1,1]],
+    O: [[1,1],[1,1]],
+    T: [[0,1,0],[1,1,1]],
+    S: [[0,1,1],[1,1,0]],
+    Z: [[1,1,0],[0,1,1]],
+    J: [[1,0,0],[1,1,1]],
+    L: [[0,0,1],[1,1,1]]
+};
+const TETRIS_COLORS = ['#667eea','#48dbfb','#1dd1a1','#ffd700','#ff6b6b','#a29bfe','#fd79a8'];
+
+function startTetris() {
+    tetrisGrid = Array(TETRIS_ROWS).fill(null).map(() => Array(TETRIS_COLS).fill(0));
+    tetrisScore = 0;
+    tetrisPiece = null;
+    tetrisNext = Object.keys(TETRIS_SHAPES)[Math.floor(Math.random() * 7)];
+    const c = document.getElementById('tetrisCanvas');
+    const nc = document.getElementById('tetrisNextCanvas');
+    if (!c || !nc) return;
+    document.getElementById('tetrisScore').textContent = '0';
+    const onKey = (e) => {
+        if (!tetrisPiece) return;
+        if (e.key === 'ArrowLeft') { moveTetris(-1); e.preventDefault(); }
+        if (e.key === 'ArrowRight') { moveTetris(1); e.preventDefault(); }
+        if (e.key === 'ArrowDown') { dropTetris(); e.preventDefault(); }
+        if (e.key === 'ArrowUp') { rotateTetris(); e.preventDefault(); }
+        if (e.key === ' ') { hardDropTetris(); e.preventDefault(); }
+    };
+    document.removeEventListener('keydown', tetrisKeyHandler);
+    tetrisKeyHandler = onKey;
+    document.addEventListener('keydown', onKey);
+    if (tetrisInterval) clearInterval(tetrisInterval);
+    tetrisInterval = setInterval(tickTetris, 500);
+    spawnTetrisPiece();
+    drawTetris();
+}
+
+let tetrisKeyHandler = null;
+function spawnTetrisPiece() {
+    const name = tetrisNext;
+    tetrisNext = Object.keys(TETRIS_SHAPES)[Math.floor(Math.random() * 7)];
+    const shape = TETRIS_SHAPES[name].map(r => [...r]);
+    tetrisPiece = { shape, x: Math.floor((TETRIS_COLS - shape[0].length) / 2), y: 0, color: TETRIS_COLORS[Math.floor(Math.random() * TETRIS_COLORS.length)] };
+    if (collidesTetris(tetrisPiece)) {
+        clearInterval(tetrisInterval);
+        tetrisInterval = null;
+        document.removeEventListener('keydown', tetrisKeyHandler);
+        alert('게임 오버! 점수: ' + tetrisScore);
+    }
+}
+function collidesTetris(p, dx = 0, dy = 0) {
+    for (let r = 0; r < p.shape.length; r++)
+        for (let c = 0; c < p.shape[r].length; c++)
+            if (p.shape[r][c]) {
+                const nx = p.x + c + dx, ny = p.y + r + dy;
+                if (nx < 0 || nx >= TETRIS_COLS || ny >= TETRIS_ROWS) return true;
+                if (ny >= 0 && tetrisGrid[ny][nx]) return true;
+            }
+    return false;
+}
+function mergeTetris() {
+    for (let r = 0; r < tetrisPiece.shape.length; r++)
+        for (let c = 0; c < tetrisPiece.shape[r].length; c++)
+            if (tetrisPiece.shape[r][c]) {
+                const ny = tetrisPiece.y + r;
+                if (ny >= 0) tetrisGrid[ny][tetrisPiece.x + c] = tetrisPiece.color;
+            }
+    let cleared = 0;
+    for (let r = TETRIS_ROWS - 1; r >= 0; r--) {
+        if (tetrisGrid[r].every(c => c)) { tetrisGrid.splice(r, 1); tetrisGrid.unshift(Array(TETRIS_COLS).fill(0)); cleared++; r++; }
+    }
+    tetrisScore += cleared * 100;
+    document.getElementById('tetrisScore').textContent = tetrisScore;
+    spawnTetrisPiece();
+}
+function moveTetris(dx) { if (!collidesTetris(tetrisPiece, dx, 0)) { tetrisPiece.x += dx; drawTetris(); } }
+function dropTetris() { if (!collidesTetris(tetrisPiece, 0, 1)) { tetrisPiece.y++; tetrisScore += 1; document.getElementById('tetrisScore').textContent = tetrisScore; drawTetris(); } else { mergeTetris(); } }
+function hardDropTetris() { while (!collidesTetris(tetrisPiece, 0, 1)) { tetrisPiece.y++; tetrisScore += 2; } mergeTetris(); drawTetris(); }
+function rotateTetris() {
+    const rotated = tetrisPiece.shape[0].map((_, i) => tetrisPiece.shape.map(r => r[i]).reverse());
+    const prev = tetrisPiece.shape;
+    tetrisPiece.shape = rotated;
+    if (collidesTetris(tetrisPiece)) tetrisPiece.shape = prev;
+    drawTetris();
+}
+function tickTetris() { dropTetris(); }
+function drawTetris() {
+    const c = document.getElementById('tetrisCanvas');
+    const nc = document.getElementById('tetrisNextCanvas');
+    if (!c || !nc) return;
+    const ctx = c.getContext('2d');
+    const nctx = nc.getContext('2d');
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, c.width, c.height);
+    for (let r = 0; r < TETRIS_ROWS; r++)
+        for (let col = 0; col < TETRIS_COLS; col++)
+            if (tetrisGrid[r][col]) {
+                ctx.fillStyle = tetrisGrid[r][col];
+                ctx.fillRect(col * TETRIS_BLOCK, r * TETRIS_BLOCK, TETRIS_BLOCK - 1, TETRIS_BLOCK - 1);
+            }
+    if (tetrisPiece) {
+        ctx.fillStyle = tetrisPiece.color;
+        for (let r = 0; r < tetrisPiece.shape.length; r++)
+            for (let col = 0; col < tetrisPiece.shape[r].length; col++)
+                if (tetrisPiece.shape[r][col])
+                    ctx.fillRect((tetrisPiece.x + col) * TETRIS_BLOCK, (tetrisPiece.y + r) * TETRIS_BLOCK, TETRIS_BLOCK - 1, TETRIS_BLOCK - 1);
+    }
+    nctx.fillStyle = '#1a1a2e';
+    nctx.fillRect(0, 0, nc.width, nc.height);
+    const nextShape = TETRIS_SHAPES[tetrisNext];
+    const sc = 12;
+    nctx.fillStyle = TETRIS_COLORS[0];
+    for (let r = 0; r < nextShape.length; r++)
+        for (let col = 0; col < nextShape[r].length; col++)
+            if (nextShape[r][col])
+                nctx.fillRect(20 + col * sc, 20 + r * sc, sc - 1, sc - 1);
+}
+
+function closeTetris() {
+    if (tetrisInterval) { clearInterval(tetrisInterval); tetrisInterval = null; }
+    document.removeEventListener('keydown', tetrisKeyHandler);
+    document.getElementById('minigameTetrisOverlay')?.classList.add('hidden');
+}
+
+let touchTycoonBalls = [], touchTycoonCoins = 0, touchTycoonLoopId;
+function startTouchTycoon() {
+    touchTycoonBalls = [];
+    touchTycoonCoins = 0;
+    const c = document.getElementById('touchTycoonCanvas');
+    if (!c) return;
+    document.getElementById('touchTycoonCoins').textContent = '0';
+    const click = (e) => {
+        const rect = c.getBoundingClientRect();
+        const scaleX = c.width / rect.width, scaleY = c.height / rect.height;
+        const mx = (e.clientX - rect.left) * scaleX, my = (e.clientY - rect.top) * scaleY;
+        let hit = false;
+        for (let i = touchTycoonBalls.length - 1; i >= 0; i--) {
+            const b = touchTycoonBalls[i];
+            const dx = mx - b.x, dy = my - b.y;
+            if (dx * dx + dy * dy <= b.r * b.r) {
+                touchTycoonBalls.splice(i, 1);
+                touchTycoonCoins++;
+                document.getElementById('touchTycoonCoins').textContent = touchTycoonCoins;
+                coins = (options.coins ?? coins ?? 0) + 1;
+                options.coins = coins;
+                updateCoinsUI(coins);
+                saveOptionsToAccount().catch(() => {});
+                hit = true;
+                break;
+            }
+        }
+        if (!hit) {
+            touchTycoonCoins = Math.max(0, touchTycoonCoins - 2);
+            document.getElementById('touchTycoonCoins').textContent = touchTycoonCoins;
+            coins = Math.max(0, (options.coins ?? coins ?? 0) - 2);
+            options.coins = coins;
+            updateCoinsUI(coins);
+            saveOptionsToAccount().catch(() => {});
+        }
+    };
+    c.onclick = click;
+    c.ontouchend = (e) => { e.preventDefault(); click(e.changedTouches?.[0] || e); };
+    const spawn = () => {
+        touchTycoonBalls.push({
+            x: 30 + Math.random() * (c.width - 60),
+            y: 30 + Math.random() * (c.height - 60),
+            r: 15 + Math.random() * 20,
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2
+        });
+    };
+    for (let i = 0; i < 5; i++) spawn();
+    let lastSpawn = Date.now();
+    const loop = () => {
+        const ov = document.getElementById('minigameTouchTycoonOverlay');
+        if (!ov || ov.classList.contains('hidden')) return;
+        touchTycoonLoopId = requestAnimationFrame(loop);
+        const now = Date.now();
+        if (now - lastSpawn > 800) { spawn(); lastSpawn = now; }
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, c.width, c.height);
+        for (const b of touchTycoonBalls) {
+            b.x += b.vx; b.y += b.vy;
+            if (b.x - b.r < 0 || b.x + b.r > c.width) b.vx *= -1;
+            if (b.y - b.r < 0 || b.y + b.r > c.height) b.vy *= -1;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+            ctx.fillStyle = '#667eea';
+            ctx.fill();
+            ctx.strokeStyle = '#b8b8ff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+    };
+    if (touchTycoonLoopId) cancelAnimationFrame(touchTycoonLoopId);
+    loop();
+}
+
+function closeTouchTycoon() {
+    document.getElementById('minigameTouchTycoonOverlay')?.classList.add('hidden');
+    if (touchTycoonLoopId) { cancelAnimationFrame(touchTycoonLoopId); touchTycoonLoopId = null; }
+}
+
+document.getElementById('minigameTetrisBtn')?.addEventListener('click', openMinigameTetris);
+document.getElementById('minigameTouchTycoonBtn')?.addEventListener('click', openMinigameTouchTycoon);
+document.getElementById('tetrisCloseBtn')?.addEventListener('click', closeTetris);
+document.getElementById('touchTycoonCloseBtn')?.addEventListener('click', closeTouchTycoon);
 
 function createDefaultCreatorBrick(x, y) {
     const w = 60, h = 22;
@@ -3179,6 +4087,61 @@ document.getElementById('creatorLoadOthersBtn')?.addEventListener('click', async
 document.getElementById('customLevelsModalClose')?.addEventListener('click', () => {
     document.getElementById('customLevelsModal')?.classList.add('hidden');
 });
+document.getElementById('mercyBtn')?.addEventListener('click', () => {
+    if (!awaitingMercyAttackChoice) return;
+    document.getElementById('mercyAttackOverlay')?.classList.add('hidden');
+    if (mercyAttackBossBrick) {
+        const b = mercyAttackBossBrick;
+        const cx = b.x + b.width / 2, cy = b.y;
+        if (b.isItem && b.itemType) spawnFallingItem(cx, cy, b.itemType);
+        if (b.isNerf && b.itemType) spawnFallingItem(cx, cy, b.itemType);
+        b.visible = false;
+        mercyAttackBossBrick = null;
+    }
+    minions = [];
+    minionBullets = [];
+    coins += 100;
+    updateCoinsUI(coins);
+    const msgEl = document.getElementById('stageMsgText');
+    const overlayEl = document.getElementById('stageMsgOverlay');
+    if (msgEl && overlayEl) {
+        msgEl.textContent = '적도 그만 싸우자고 생각했다';
+        overlayEl.classList.remove('hidden');
+    }
+    setTimeout(() => {
+        if (overlayEl) overlayEl.classList.add('hidden');
+        awaitingMercyAttackChoice = false;
+        bossDustEffects = [];
+        showBossUpgradeChoice();
+    }, 2500);
+});
+document.getElementById('attackBtn')?.addEventListener('click', () => {
+    if (!awaitingMercyAttackChoice || !mercyAttackBossBrick) return;
+    const b = mercyAttackBossBrick;
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    if (b.isItem && b.itemType) spawnFallingItem(cx, b.y, b.itemType);
+    if (b.isNerf && b.itemType) spawnFallingItem(cx, b.y, b.itemType);
+    for (let i = 0; i < 40; i++) {
+        const a = (Math.PI * 2 * i) / 40 + Math.random() * 0.5;
+        const v = 2 + Math.random() * 4;
+        bossDustEffects.push({
+            x: cx, y: cy,
+            vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+            startTime: Date.now(), duration: 800
+        });
+    }
+    document.getElementById('mercyAttackOverlay')?.classList.add('hidden');
+    b.visible = false;
+    mercyAttackBossBrick = null;
+    minions = [];
+    minionBullets = [];
+    setTimeout(() => {
+        awaitingMercyAttackChoice = false;
+        bossDustEffects = [];
+        showBossUpgradeChoice();
+    }, 900);
+});
 document.getElementById('creatorTutorialOkBtn')?.addEventListener('click', () => {
     document.getElementById('creatorTutorialOverlay')?.classList.add('hidden');
     saveCreatorModeTutorialShown();
@@ -3194,18 +4157,24 @@ document.getElementById('creatorStartBtn')?.addEventListener('click', () => {
     document.getElementById('creatorOverlay')?.classList.add('hidden');
     document.getElementById('creatorTutorialOverlay')?.classList.add('hidden');
     score = 0; lives = 3; currentStage = 1;
+    stage6DarkPhaseUntil = 0;
+    stage6DarkPhaseNextAt = 0;
     updateStageUI(currentStage);
     updateScoreUI(score);
-    updateLivesUI(lives);
+    updateLivesUI();
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('gameOverOverlay')?.classList.add('hidden');
     document.getElementById('winOverlay')?.classList.add('hidden');
+    document.getElementById('mercyAttackOverlay')?.classList.add('hidden');
     gameRunning = true;
     gamePaused = false;
     ballLaunched = false;
     ballStickTimer = 0;
     hasBulletPower = false;
-    bullets = []; bossBullets = []; bossShields = []; damageNumbers = [];
+    bullets = []; bossBullets = []; bossShields = []; damageNumbers = []; bombExplosions = [];
+    awaitingMercyAttackChoice = false;
+    mercyAttackBossBrick = null;
+    bossDustEffects = [];
     fallingItems = []; activeItems = [];
     paddle.x = (canvas.width - paddle.width) / 2;
     mouseX = canvas.width / 2;
@@ -3272,6 +4241,7 @@ function hideTutorialOverlay() {
 }
 const startBtn = document.getElementById('startBtn');
 if (startBtn) startBtn.addEventListener('click', async () => {
+    coopMode = false;
     if (BOSS4_TEST || BOSS5_TEST || BOSS6_TEST || STAGE4_ONLY || STAGE6_ONLY || STAGE3_ONLY) {
         startGame(true);
         return;
@@ -3282,6 +4252,22 @@ if (startBtn) startBtn.addEventListener('click', async () => {
     } else {
         showTutorialOverlay();
     }
+});
+const coopModeBtn = document.getElementById('coopModeBtn');
+if (coopModeBtn) coopModeBtn.addEventListener('click', () => {
+    document.getElementById('startOverlay')?.classList.add('hidden');
+    document.getElementById('coopOverlay')?.classList.remove('hidden');
+});
+const coopStartBtn = document.getElementById('coopStartBtn');
+if (coopStartBtn) coopStartBtn.addEventListener('click', () => {
+    coopMode = true;
+    document.getElementById('coopOverlay')?.classList.add('hidden');
+    startGame(true);
+});
+const coopBackBtn = document.getElementById('coopBackBtn');
+if (coopBackBtn) coopBackBtn.addEventListener('click', () => {
+    document.getElementById('coopOverlay')?.classList.add('hidden');
+    document.getElementById('startOverlay')?.classList.remove('hidden');
 });
 const tutorialStartBtn = document.getElementById('tutorialStartBtn');
 if (tutorialStartBtn) tutorialStartBtn.addEventListener('click', () => {
@@ -3362,6 +4348,7 @@ function doGuestLogin() {
     currentAccount = GUEST_ACCOUNT;
     coins = parseInt(localStorage.getItem('guestCoins') || '0', 10);
     options.coins = coins;
+    setMaxCoins(Math.max(getMaxCoins(), coins));
     updateCoinsUI(coins);
     stopLoginBGM();
     document.getElementById('loginOverlay')?.classList.add('hidden');
@@ -3930,7 +4917,7 @@ async function init() {
     mouseX = canvas.width / 2;
     document.getElementById('startOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
-    startLoginBGM();
+    startLoginBGMOrSchedule();
     try {
         await refreshAccountList();
     } catch (e) {

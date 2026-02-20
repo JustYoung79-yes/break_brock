@@ -1,0 +1,33 @@
+{
+  "name": "brickbreaker-game",
+  "version": "1.0.0",
+  "description": "벽돌깨기 게임 - Capacitor Android App",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo No build step - static files",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "capacitor": {
+    "platforms": [
+      "android"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JustYoung79-yes/break_brock.git"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/JustYoung79-yes/break_brock/issues"
+  },
+  "homepage": "https://github.com/JustYoung79-yes/break_brock#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0"
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">벽돌깨기RPG The Legend</string>
+    <string name="title_activity_main">벽돌깨기RPG The Legend</string>
+    <string name="package_name">comy.Chan.brickbreaker</string>
+    <string name="custom_url_scheme">comy.Chan.brickbreaker</string>
+</resources>

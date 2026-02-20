@@ -1,0 +1,8 @@
+{
+  "appId": "comy.Chan.brickbreaker",
+  "appName": "벽돌깨기RPG The Legend",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  }
+}

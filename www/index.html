@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="screen-orientation" content="landscape">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+    <title>벽돌깨기 게임</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Noto+Sans+KR:wght@400;700&display=swap');
+
+        :root {
+            --game-purple: 138, 43, 226;
+            --game-accent: #b8b8ff;
+            --game-light: #e0e0ff;
+            --game-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            font-family: 'Noto Sans KR', sans-serif;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        
+        .game-container {
+            position: relative;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 16px;
+            box-shadow: 0 0 60px rgba(var(--game-purple), 0.3), inset 0 0 60px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(var(--game-purple), 0.5);
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: 100vh;
+        }
+        
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--game-light);
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 1.8rem;
+            text-shadow: 0 0 20px rgba(var(--game-purple), 0.8);
+        }
+        
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            color: var(--game-accent);
+            font-size: 0.95rem;
+        }
+        
+        .info-bar span {
+            font-weight: 700;
+        }
+        
+        .lives-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .lives-bar-wrap .label { font-weight: 700; }
+        .lives-bar {
+            width: 72px;
+            height: 12px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid rgba(var(--game-purple), 0.4);
+        }
+        .lives-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 5px;
+            transition: width 0.25s ease;
+        }
+        .game-sidebar .lives-bar { width: 52px; height: 10px; }
+        
+        canvas {
+            display: block;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 8px;
+            cursor: none;
+            touch-action: none;
+        }
+        body.creator-mode canvas { cursor: default; }
+        
+        .controls {
+            margin-top: 15px;
+            text-align: center;
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 16px;
+            color: white;
+            z-index: 10;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .overlay.hidden {
+            display: none;
+        }
+        .creator-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .creator-panel.hidden { display: none; }
+        .creator-panel .btn.selected { background: #8b5cf6; border-color: #8b5cf6; }
+        
+        .overlay h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2rem;
+            margin-bottom: 20px;
+            text-shadow: 0 0 30px rgba(var(--game-purple), 0.8);
+        }
+        
+        .overlay p {
+            margin-bottom: 25px;
+            font-size: 1.1rem;
+            color: var(--game-accent);
+        }
+        
+        #loginOverlay {
+            background: rgba(255, 255, 255, 0.95);
+        }
+        .login-options-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1;
+        }
+        .login-guest-btn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 1;
+        }
+        #loginOverlay, #loginOverlay h2, #loginOverlay p {
+            color: #000;
+        }
+        #loginOverlay .account-input {
+            color: #000;
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(0, 0, 0, 0.3);
+        }
+        #loginOverlay .account-input::placeholder {
+            color: rgba(0,0,0,0.5);
+        }
+        #loginOverlay .btn-outline {
+            color: #000;
+            border-color: rgba(0, 0, 0, 0.5);
+        }
+        #loginOverlay .btn-outline:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        #loginOverlay .btn-toggle-pw {
+            color: #000;
+        }
+        
+        .profile-draw-section {
+            margin: 12px 0;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+        .profile-draw-section p {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .profile-canvas-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .profile-canvas-wrap canvas {
+            border: 2px solid rgba(138, 43, 226, 0.5);
+            border-radius: 8px;
+            cursor: crosshair;
+            background: #fff;
+            image-rendering: pixelated;
+        }
+        .profile-color-btn {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .profile-color-btn.active {
+            border-color: #48dbfb;
+            box-shadow: 0 0 8px rgba(72,219,251,0.8);
+        }
+        .ranking-table .profile-img {
+            width: 28px;
+            height: 28px;
+            vertical-align: middle;
+            border-radius: 4px;
+            margin-right: 6px;
+        }
+        
+        .btn {
+            padding: 14px 35px;
+            font-size: 1.1rem;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: var(--game-gradient);
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-small {
+            padding: 8px 20px;
+            font-size: 0.9rem;
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 2px solid rgba(102, 126, 234, 0.6);
+            color: var(--game-accent);
+        }
+        
+        .btn-outline:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .account-input {
+            padding: 12px 20px;
+            font-size: 1rem;
+            border-radius: 8px;
+            border: 2px solid rgba(var(--game-purple), 0.5);
+            background: rgba(102, 126, 234, 0.2);
+            color: white;
+            width: 200px;
+            text-align: center;
+        }
+        
+        .account-input::placeholder {
+            color: rgba(184, 184, 255, 0.5);
+        }
+        
+        .input-with-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 8px 0;
+            justify-content: center;
+        }
+        
+        .input-with-toggle .account-input {
+            margin: 0;
+        }
+        
+        .login-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 10px 0;
+        }
+        .login-row label {
+            min-width: 70px;
+            color: #b8b8ff;
+            font-size: 1rem;
+        }
+        
+        .btn-toggle-pw {
+            padding: 10px 14px;
+            font-size: 1rem;
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(138, 43, 226, 0.5);
+            border-radius: 8px;
+            color: #b8b8ff;
+            cursor: pointer;
+        }
+        
+        .btn-toggle-pw:hover {
+            background: rgba(102, 126, 234, 0.5);
+        }
+        
+        .password-match-msg {
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        
+        .password-match-msg.error {
+            color: #ff6b6b;
+        }
+        
+        .password-match-msg.ok {
+            color: #48dbfb;
+        }
+        
+        .options-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 16px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 9999;
+            overflow-y: auto;
+        }
+        
+        .options-panel.hidden {
+            display: none;
+        }
+        .options-panel .options-footer {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+        }
+        #storageAdminBtn {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            min-width: 0;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0;
+        }
+        #storageAdminBtn:hover {
+            background: #222;
+        }
+        
+        .options-panel h2 {
+            margin-bottom: 25px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        
+        .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 400px;
+            margin-bottom: 18px;
+            color: var(--game-accent);
+        }
+        
+        .option-row label {
+            flex: 1;
+        }
+        
+        .option-row select,
+        .option-row input[type="range"] {
+            flex: 1;
+            max-width: 200px;
+            margin-left: 15px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(var(--game-purple), 0.5);
+            color: white;
+        }
+        
+        .option-row input[type="range"] {
+            padding: 0;
+        }
+        
+        .option-value {
+            min-width: 40px;
+            text-align: right;
+        }
+        
+        .shop-section {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px 0 10px;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.15);
+            border-radius: 12px;
+            border: 1px solid rgba(var(--game-purple), 0.4);
+        }
+        .shop-section h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            color: var(--game-light);
+            margin-bottom: 12px;
+        }
+        .equipment-shop h3, .equipment-shop p, .equipment-shop #equipmentShopGrid, .equipment-shop #equipmentShopGrid * { color: #fff !important; }
+        .shop-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .shop-skin-btn {
+            width: 56px;
+            height: 56px;
+            border: 2px solid rgba(var(--game-purple), 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        .shop-skin-btn:hover {
+            border-color: var(--game-accent);
+            transform: scale(1.05);
+        }
+        .shop-skin-btn.selected {
+            border-color: #48dbfb;
+            box-shadow: 0 0 12px rgba(72, 219, 251, 0.6);
+        }
+        
+        .header-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            position: relative;
+            z-index: 15;
+        }
+        #bulletFireBtn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 16;
+            padding: 12px 20px;
+            font-size: 1rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00aa55 0%, #008844 100%);
+            color: white;
+            border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            display: none;
+            box-shadow: 0 2px 10px rgba(0,170,85,0.5);
+        }
+        #bulletFireBtn:active {
+            transform: scale(0.95);
+        }
+        .header-btns { display: flex; gap: 8px; align-items: center; }
+        
+        .header-buttons h1 {
+            flex: 1;
+            margin: 0;
+        }
+        
+        .overlay-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .ranking-box {
+            background: rgba(0,0,0,0.5);
+            border-radius: 8px;
+            padding: 15px 25px;
+            margin: 15px 0;
+            min-width: 200px;
+            text-align: left;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        
+        .ranking-box h3 {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: var(--game-accent);
+        }
+        
+        .ranking-box ol {
+            padding-left: 20px;
+            color: var(--game-light);
+        }
+        
+        .ranking-box li {
+            margin: 5px 0;
+        }
+        
+        .ranking-box .ranking-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            color: var(--game-light);
+        }
+        .ranking-box .ranking-table th,
+        .ranking-box .ranking-table td {
+            padding: 6px 10px;
+            text-align: left;
+            border-bottom: 1px solid rgba(184, 184, 255, 0.3);
+        }
+        .ranking-box .ranking-table th {
+            color: var(--game-accent);
+            font-weight: 700;
+        }
+        .ranking-box .ranking-table tr:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .first-place {
+            font-size: 1.5rem;
+            color: #ffd700;
+            margin: 15px 0;
+            animation: pulse 0.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.1); }
+        }
+        
+        /* 회전 안내 오버레이: 전체 뷰포트 고정 (세로 모드에서 잘림 방지) */
+        #rotateOverlay {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            height: 100dvh !important;
+            min-height: 100dvh;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        @media (orientation: portrait) {
+            #rotateOverlay h2 { font-size: 1.2rem; margin-bottom: 12px; }
+            #rotateOverlay p { font-size: 0.9rem; margin-bottom: 10px; }
+            #rotateOverlay p:last-of-type { font-size: 2rem; margin: 12px 0; }
+        }
+        /* 모바일 가로 모드: 게임창 세로 꽉, UI 오른쪽 패널 */
+        @media (orientation: landscape) and (max-width: 900px) {
+            body { padding: 4px; overflow: hidden; }
+            .game-container {
+                display: flex;
+                flex-direction: row;
+                align-items: stretch;
+                padding: 8px;
+                max-width: 100vw;
+                max-height: 100vh;
+                gap: 8px;
+            }
+            .game-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: stretch; align-items: stretch; }
+            .game-sidebar {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 8px;
+                min-width: 100px;
+                max-width: 140px;
+                padding: 8px 0;
+            }
+            .game-sidebar .header-buttons { flex-direction: column; margin-bottom: 0; }
+            .game-sidebar .header-buttons h1 { font-size: 0.9rem; margin-bottom: 4px; }
+            .game-sidebar .info-bar { flex-direction: column; align-items: flex-start; font-size: 0.75rem; margin-bottom: 0; }
+            .game-sidebar .controls { font-size: 0.6rem; margin-top: 0; text-align: left; line-height: 1.3; }
+            .game-sidebar .header-btns { flex-direction: column; }
+            .game-main canvas { flex: 1; min-height: 0; width: 100% !important; height: 100% !important; max-height: 100%; touch-action: none; }
+        }
+        /* 모바일 세로/짧은 화면 */
+        @media (max-height: 500px) {
+            body { padding: 8px; overflow-y: auto; overflow-x: hidden; }
+            .game-container { padding: 10px; max-width: 100%; }
+            h1 { font-size: 1.2rem; margin-bottom: 6px; }
+            .info-bar { font-size: 0.8rem; margin-bottom: 6px; }
+            .controls { font-size: 0.7rem; margin-top: 6px; }
+            canvas { max-width: 100%; max-height: 70vh; touch-action: none; }
+        }
+        @media (orientation: portrait) or (min-width: 901px) {
+            .game-sidebar { display: none !important; }
+        }
+        @media (orientation: landscape) and (max-width: 900px) {
+            .game-main .header-buttons, .game-main .info-bar, .game-main .controls { display: none !important; }
+        }
+        @media (orientation: landscape) and (max-width: 900px) {
+            #rotateOverlay { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-main" style="position:relative;">
+            <button type="button" id="bulletFireBtn" style="display:none;">🔫 발사</button>
+            <div class="header-buttons header-top">
+                <h1>🎮 벽돌깨기</h1>
+                <div class="header-btns">
+                    <button class="btn btn-small" id="exitBtn" title="종료" style="display:none;">✕</button>
+                    <button class="btn btn-small" id="fullscreenBtn" title="전체화면" style="display:none;">⛶</button>
+                    <button class="btn btn-small" id="optionsBtn">옵션</button>
+                </div>
+            </div>
+            <div class="info-bar info-top">
+                <span>스테이지: <span id="stage" class="stageVal">1</span></span>
+                <span>점수: <span id="score" class="scoreVal">0</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" id="livesFill" style="width:100%"></div></div></span>
+                <span>🪙 <span id="coins" class="coinVal">0</span></span>
+            </div>
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+            <p class="controls controls-bottom">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
+        </div>
+        <div class="game-sidebar">
+            <div class="header-buttons">
+                <h1>🎮 벽돌깨기</h1>
+                <div class="header-btns">
+                    <button class="btn btn-small" id="exitBtnSide" title="종료" style="display:none;">✕</button>
+                    <button class="btn btn-small" id="fullscreenBtnSide" title="전체화면" style="display:none;">⛶</button>
+                    <button class="btn btn-small" id="optionsBtnSide" title="옵션">옵션</button>
+                </div>
+            </div>
+            <div class="info-bar">
+                <span>스테이지: <span class="stageVal">1</span></span>
+                <span>점수: <span class="scoreVal">0</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" style="width:100%"></div></div></span>
+                <span>🪙 <span class="coinVal">0</span></span>
+            </div>
+            <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
+        </div>
+        
+        <div id="rotateOverlay" class="overlay" style="z-index:100; background: rgba(0,0,0,0.95); display:none;">
+            <h2>📱 가로 모드로 전환해 주세요</h2>
+            <p>이 게임은 가로 모드에서만 플레이할 수 있습니다.</p>
+            <p style="font-size:3rem; margin:20px 0;">📲</p>
+            <p style="font-size:0.85rem; color:#888; margin-top:10px;">가로 모드 후 ⛶ 버튼으로 전체화면을 사용하세요</p>
+        </div>
+        
+        <div id="loginOverlay" class="overlay">
+            <button type="button" class="btn btn-small login-guest-btn" id="guestPlayBtn" onclick="typeof doGuestLogin==='function'&&doGuestLogin()">게스트로 플레이</button>
+            <button type="button" class="btn btn-small login-options-btn" id="optionsBtnLogin" title="옵션">옵션</button>
+            <h2>🎮 벽돌깨기</h2>
+            <p id="loginConnectionStatus" class="login-status error" style="display:none; font-size:0.9rem; color:#ff6b6b; margin:8px 0; max-width:280px;"></p>
+            <p>계정 아이디를 입력하세요</p>
+            <div class="login-row">
+                <label for="accountSelect">아이디</label>
+                <input type="text" id="accountSelect" class="account-input" placeholder="계정 아이디 입력" maxlength="20" autocomplete="off" style="width:220px;">
+            </div>
+            <div class="login-row">
+                <label for="passwordInput">비밀번호</label>
+                <div class="input-with-toggle" style="margin:0;">
+                    <input type="password" id="passwordInput" placeholder="비밀번호" maxlength="30" class="account-input">
+                    <button type="button" class="btn-toggle-pw" id="toggleLoginPassword" title="비밀번호 보기">👁</button>
+                </div>
+            </div>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button type="button" class="btn" id="loginBtn" onclick="typeof doLogin==='function'&&doLogin()">로그인</button>
+                <button type="button" class="btn btn-small btn-outline" id="editProfileFromLoginBtn" onclick="typeof showEditProfileFromLogin==='function'&&showEditProfileFromLogin()">프로필 수정</button>
+                <button type="button" class="btn btn-small btn-outline" id="createAccountBtn" onclick="typeof showCreateAccountModal==='function'&&showCreateAccountModal()">계정 새로 만들기</button>
+                <button type="button" class="btn btn-small btn-outline" id="deleteAccountBtn" onclick="handleDeleteAccount()">계정 삭제</button>
+                <button type="button" class="btn btn-small btn-outline" id="findPasswordBtn" onclick="typeof showFindPasswordModal==='function'&&showFindPasswordModal()">비밀번호 찾기</button>
+            </div>
+        </div>
+        
+        <div id="startOverlay" class="overlay hidden">
+            <h2>벽돌깨기</h2>
+            <p>모든 벽돌을 깨면 승리! <span id="currentAccountDisplay"></span></p>
+            <div class="overlay-buttons" style="margin-bottom:15px;">
+                <button class="btn" id="startBtn">게임 시작</button>
+                <button class="btn btn-small btn-outline" id="editAccountBtn">계정 정보 수정</button>
+            </div>
+        </div>
+        
+        <div id="gameOverOverlay" class="overlay hidden" style="z-index: 20;">
+            <h2>Game Over</h2>
+            <p style="font-size:0.9rem; color:#b8b8ff; margin-top:-10px; margin-bottom:15px;">게임오버</p>
+            <p>최종 점수: <span id="finalScore">0</span></p>
+            <div id="gameOverFirstPlace" class="first-place hidden"></div>
+            <div id="rankingDisplay" class="ranking-box"></div>
+            <div class="overlay-buttons">
+                <button class="btn" id="continueBtn">이어서 하기</button>
+                <button class="btn" id="newGameBtn">새로 시작</button>
+            </div>
+        </div>
+        
+        <div id="winOverlay" class="overlay hidden">
+            <h2>🎉 승리!</h2>
+            <p>축하합니다! 전투에서 승리했습니다</p>
+            <p>최종 점수: <span id="winScore">0</span></p>
+            <div id="winRankingDisplay" class="ranking-box"></div>
+            <div id="firstPlaceCelebration" class="first-place hidden"></div>
+            <div class="overlay-buttons" style="flex-wrap:wrap; gap:8px;">
+                <button class="btn" id="playAgainBtn">다시 하기</button>
+                <button type="button" class="btn btn-small btn-outline" id="resetMyRankingBtnWin">내 점수 초기화</button>
+                <button type="button" class="btn btn-small btn-outline" id="resetAllRankingBtnWin">전체 점수 초기화</button>
+            </div>
+        </div>
+        
+        <div id="tutorialOverlay" class="overlay hidden" style="z-index:15;">
+            <h2>📖 튜토리얼</h2>
+            <div style="text-align:left; max-width:360px; margin:15px 0; line-height:1.6; color:#b8b8ff;">
+                <p>• <strong>마우스</strong> 또는 <strong>방향키</strong>로 패들을 좌우로 움직이세요</p>
+                <p>• <strong>스페이스바</strong>를 누르면 공이 발사됩니다</p>
+                <p>• 공이 패들에 닿지 않고 바닥으로 떨어지면 생명이 줄어듭니다</p>
+                <p>• 모든 벽돌을 깨면 스테이지 클리어!</p>
+                <p>• 아이템을 먹어 다양한 효과를 얻어보세요</p>
+            </div>
+            <button class="btn" id="tutorialStartBtn">시작하기</button>
+        </div>
+        
+        <div id="creatorTutorialOverlay" class="overlay hidden" style="z-index:20;">
+            <h2>🔧 만들기 모드</h2>
+            <div style="text-align:left; max-width:320px; margin:15px 0; line-height:1.6; color:#b8b8ff;">
+                <p>• <strong>클릭</strong>: 빈 공간에 벽돌 설치</p>
+                <p>• <strong>드래그</strong>: 벽돌 이동</p>
+                <p>• <strong>우클릭</strong> 또는 <strong>삭제 버튼</strong> 후 클릭: 벽돌 제거</p>
+                <p>• <strong>게임 시작</strong>으로 만든 맵을 플레이하세요</p>
+            </div>
+            <button class="btn" id="creatorTutorialOkBtn">확인</button>
+        </div>
+        <div id="creatorOverlay" class="creator-panel hidden" style="position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:15; background:rgba(0,0,0,0.9); padding:12px 20px; border-radius:12px;">
+            <span style="font-weight:bold;">🔧 만들기 모드</span>
+            <span style="font-size:0.85rem; color:#b8b8ff;">클릭: 설치 · 드래그: 이동 · 삭제 버튼/우클릭: 제거</span>
+            <div class="overlay-buttons" style="margin:0; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-small" id="creatorDeleteBtn">🗑️ 삭제</button>
+                <button class="btn btn-small" id="creatorSaveLevelBtn">💾 레벨 저장</button>
+                <button class="btn btn-small" id="creatorLoadOthersBtn">🌐 다른 유저 레벨</button>
+                <button class="btn btn-small" id="creatorStartBtn">게임 시작</button>
+                <button class="btn btn-small btn-outline" id="creatorExitBtn">종료</button>
+            </div>
+        </div>
+
+        <div id="customLevelsModal" class="overlay hidden" style="z-index:21;">
+            <h2>🌐 다른 유저가 만든 레벨</h2>
+            <p style="font-size:0.9rem; color:#b8b8ff;">플레이할 레벨을 선택하세요</p>
+            <div id="customLevelsList" style="max-height:300px; overflow-y:auto; margin:15px 0; text-align:left;"></div>
+            <button class="btn btn-small btn-outline" id="customLevelsModalClose">닫기</button>
+        </div>
+        
+        <div id="mercyAttackOverlay" class="overlay hidden" style="z-index:23;">
+            <h2>보스 체력이 10 남았다</h2>
+            <p style="font-size:0.95rem; color:#b8b8ff;">어떻게 하시겠습니까?</p>
+            <div class="overlay-buttons" style="margin-top:20px; gap:20px;">
+                <button class="btn" id="mercyBtn">자비</button>
+                <button class="btn btn-outline" id="attackBtn">공격</button>
+            </div>
+        </div>
+        <div id="bossUpgradeOverlay" class="overlay hidden" style="z-index:22;">
+            <h2>🏆 보스 처치! 능력 선택</h2>
+            <p style="font-size:0.9rem; color:#b8b8ff;">하나를 선택하세요</p>
+            <div class="overlay-buttons" style="flex-direction:column; gap:8px; margin-top:12px;">
+                <button class="btn btn-outline boss-upgrade-btn" onclick="applyBossUpgrade('ballSize')">공 크기 +13%</button>
+                <button class="btn btn-outline boss-upgrade-btn" onclick="applyBossUpgrade('paddleSpeed')">판 속도 +12%</button>
+                <button class="btn btn-outline boss-upgrade-btn" onclick="applyBossUpgrade('explode')">벽돌 타격 시 10% 폭발</button>
+                <button class="btn btn-outline boss-upgrade-btn" onclick="applyBossUpgrade('extraLife')">생명 +1</button>
+                <button class="btn btn-outline boss-upgrade-btn" onclick="applyBossUpgrade('bulletDuration')">총알 지속 +5초</button>
+            </div>
+        </div>
+        
+        <div id="stageMsgOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.7);">
+            <h2 id="stageMsgText"></h2>
+        </div>
+        
+        <div id="passwordPromptModal" class="overlay hidden" style="z-index:25;">
+            <h2 id="passwordPromptTitle">비밀번호 입력</h2>
+            <p id="passwordPromptDesc" style="margin:10px 0; color:#b8b8ff;"></p>
+            <div class="input-with-toggle">
+                <input type="password" id="passwordPromptInput" placeholder="비밀번호" maxlength="30" class="account-input" style="margin:10px 0;">
+                <button type="button" class="btn-toggle-pw" id="togglePasswordPrompt" title="비밀번호 보기">👁</button>
+            </div>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="passwordPromptConfirmBtn">확인</button>
+                <button class="btn btn-small btn-outline" id="passwordPromptCancelBtn">취소</button>
+            </div>
+        </div>
+        
+        <div id="editAccountModal" class="overlay hidden" style="z-index:25;">
+            <h2>계정 정보 수정</h2>
+            <p id="editAccountNameDisplay" style="margin:8px 0; color:#b8b8ff;"></p>
+            <input type="text" id="editProfile" placeholder="프로필 이름 (순위에 표시됨)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+            <div class="profile-draw-section">
+                <p>프로필 그림</p>
+                <div class="profile-canvas-wrap">
+                    <canvas id="editProfileCanvas" width="64" height="64" style="width:96px;height:96px;"></canvas>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#b8b8ff;">
+                            <span>굵기</span>
+                            <input type="range" id="editProfileBrushSize" min="1" max="12" value="3" style="width:70px;">
+                            <span id="editProfileBrushSizeVal">3</span>
+                        </div>
+                        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                            <button type="button" class="profile-color-btn active" data-color="#000000" title="검정"></button>
+                            <button type="button" class="profile-color-btn" data-color="#ffffff" title="흰색" style="border:1px solid #666;"></button>
+                            <button type="button" class="profile-color-btn" data-color="#ff0000" title="빨강"></button>
+                            <button type="button" class="profile-color-btn" data-color="#00ff00" title="초록"></button>
+                            <button type="button" class="profile-color-btn" data-color="#0000ff" title="파랑"></button>
+                            <button type="button" class="profile-color-btn" data-color="#ffff00" title="노랑"></button>
+                            <button type="button" class="profile-color-btn" data-color="#ff00ff" title="분홍"></button>
+                        </div>
+                        <button type="button" class="btn btn-small btn-outline" id="editProfileClearBtn">지우기</button>
+                    </div>
+                </div>
+            </div>
+            <div class="input-with-toggle">
+                <input type="password" id="editCurrentPassword" placeholder="현재 비밀번호" maxlength="30" class="account-input" style="margin:8px 0;">
+                <button type="button" class="btn-toggle-pw" id="toggleEditCurrentPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div class="input-with-toggle">
+                <input type="password" id="editNewPassword" placeholder="새 비밀번호 (변경 시에만 입력)" maxlength="30" class="account-input" style="margin:8px 0;">
+                <button type="button" class="btn-toggle-pw" id="toggleEditNewPassword" title="비밀번호 보기">👁</button>
+            </div>
+            <div>
+                <div class="input-with-toggle">
+                    <input type="password" id="editNewPasswordConfirm" placeholder="새 비밀번호 확인" maxlength="30" class="account-input" style="margin:8px 0;">
+                    <button type="button" class="btn-toggle-pw" id="toggleEditNewPasswordConfirm" title="비밀번호 보기">👁</button>
+                </div>
+                <p id="editPasswordMatchMsg" class="password-match-msg" style="display:none;"></p>
+            </div>
+            <input type="text" id="editQuestion" placeholder="비밀번호 찾기 질문" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="editHint" placeholder="힌트" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+            <input type="text" id="editAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button class="btn" id="editAccountSubmitBtn">저장</button>
+                <button class="btn btn-small btn-outline" id="editAccountCancelBtn">취소</button>
+            </div>
+        </div>
+        
+        <div id="findPasswordModal" class="overlay hidden" style="z-index:25;">
+            <h2>비밀번호 찾기</h2>
+            <input type="text" id="findPasswordAccountSelect" class="account-input" placeholder="계정 아이디 입력" maxlength="20" autocomplete="off" style="width:220px; margin:10px 0;">
+            <p id="findPasswordQuestion" style="margin:10px 0; color:#b8b8ff; display:none;"></p>
+            <p id="findPasswordHint" style="margin:5px 0; color:#888; font-size:0.9rem; display:none;"></p>
+            <input type="text" id="findPasswordAnswer" placeholder="질문에 대한 답 입력" maxlength="30" class="account-input" style="margin:10px 0; display:none;">
+            <p id="findPasswordResult" style="margin:15px 0; color:#ffd700; font-weight:bold; display:none;"></p>
+            <div class="overlay-buttons" style="margin-top:15px;">
+                <button type="button" class="btn" id="findPasswordSubmitBtn" onclick="typeof handleFindPassword==='function'&&handleFindPassword()">확인</button>
+                <button type="button" class="btn btn-small btn-outline" id="findPasswordCancelBtn" onclick="document.getElementById('findPasswordModal')?.classList.add('hidden')">닫기</button>
+            </div>
+        </div>
+        
+        <div id="optionsPanel" class="options-panel hidden">
+            <h2>⚙️ 옵션</h2>
+            <div class="option-row">
+                <label>난이도</label>
+                <select id="difficulty">
+                    <option value="easy" selected>Easy (공속도 3)</option>
+                    <option value="medium">Medium (공속도 5)</option>
+                    <option value="hard">Hard (공속도 7)</option>
+                </select>
+            </div>
+            <div class="option-row">
+                <label>판 속도</label>
+                <input type="range" id="paddleSpeed" min="5" max="25" value="12">
+                <span class="option-value" id="paddleSpeedVal">12</span>
+            </div>
+            <div class="option-row">
+                <label>블럭 수</label>
+                <select id="blockCount">
+                    <option value="small">적음 (5×8)</option>
+                    <option value="medium" selected>보통 (6×10)</option>
+                    <option value="large">많음 (8×12)</option>
+                </select>
+            </div>
+            <div class="option-row">
+                <label>화면 크기</label>
+                <select id="screenSize">
+                    <option value="mobile">모바일 가로</option>
+                    <option value="small">작음 (640×480)</option>
+                    <option value="medium" selected>보통 (800×600)</option>
+                    <option value="large">큼 (960×720)</option>
+                </select>
+            </div>
+            <div class="option-row">
+                <label>언어</label>
+                <select id="language">
+                    <option value="ko" selected>한국어</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+            <div class="option-row" style="flex-direction:column; align-items:stretch;">
+                <details style="cursor:pointer;">
+                    <summary style="font-weight:bold; padding:8px 0;">📋 업데이트 내역</summary>
+                    <div id="updateLogContent" style="max-height:200px; overflow-y:auto; font-size:0.85rem; color:#b8b8ff; line-height:1.5; padding:10px; background:rgba(0,0,0,0.3); border-radius:8px; margin-top:6px; white-space:pre-wrap;">[최신 업데이트]
+• 보스 체력 조정: 1~6스테이지 (20,30,40,90,200,1000)
+• 공 데미지: 보스에게 10 (스테이지6: 90)
+• 보스 타격 시 빨간색 데미지 숫자 표시 (0.4초)
+• 보스 방어막: 스테이지4~6 (13/9/5초 간격)
+• 게스트 모드, 튜토리얼 추가</div>
+                </details>
+            </div>
+            <div class="shop-section" id="forgeSection">
+                <h3>🔨 대장간</h3>
+                <p style="font-size:0.9rem; color:#fff;">🪙 코인: <span id="forgeCoinVal" class="coinVal">0</span></p>
+                <div id="forgeGrid" style="display:flex; flex-direction:column; gap:8px; margin-top:8px; color:#fff;"></div>
+            </div>
+            <div class="shop-section equipment-shop">
+                <h3>⚔️ 장비 상점</h3>
+                <p style="font-size:0.9rem; color:#fff;">🪙 코인: <span id="equipmentCoinVal" class="coinVal">0</span></p>
+                <div id="equipmentShopGrid" style="display:flex; flex-direction:column; gap:8px; margin-top:8px; color:#fff;"></div>
+            </div>
+            <div class="shop-section">
+                <h3>🛒 꾸미기 상점</h3>
+                <div style="margin-bottom:12px;">
+                    <span style="font-size:0.9rem; color:#b8b8ff;">판 스킨</span>
+                    <div class="shop-grid" id="paddleSkinGrid"></div>
+                </div>
+                <div>
+                    <span style="font-size:0.9rem; color:#b8b8ff;">공 스킨</span>
+                    <div class="shop-grid" id="ballSkinGrid"></div>
+                </div>
+            </div>
+            <div class="shop-section">
+                <h3>🎮 미니게임</h3>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                    <button type="button" class="btn btn-outline" id="minigameTetrisBtn">1. 테트리스</button>
+                    <button type="button" class="btn btn-outline" id="minigameTouchTycoonBtn">2. 터치 타이쿤 (공 클릭 시 코인 +1)</button>
+                </div>
+            </div>
+            <div class="option-row">
+                <button type="button" class="btn btn-outline" id="creatorModeBtn">🔧 만들기 모드</button>
+            </div>
+            <div class="options-footer">
+                <button type="button" class="btn" id="optionsCloseBtn" onclick="typeof closeOptions==='function'&&closeOptions()">닫기</button>
+                <button type="button" id="storageAdminBtn" title="온라인 저장소 관리"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 온라인 저장소 관리 모달 -->
+    <div id="storageAdminModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
+        <h2>온라인 저장소 관리</h2>
+        <div class="overlay-buttons" style="margin-top:15px; flex-direction:column; gap:12px;">
+            <button type="button" class="btn btn-outline" id="storageAdminResetAllBtn">전체 데이터 초기화</button>
+            <a class="btn btn-outline" id="storageAdminConsoleLink" href="https://console.firebase.google.com/project/breakbrock-young/firestore" target="_blank" rel="noopener">Firebase Console 열기</a>
+            <button type="button" class="btn btn-small btn-outline" id="storageAdminCloseBtn">닫기</button>
+        </div>
+    </div>
+
+    <!-- 계정 모달: body 직계 자식으로 분리 (클릭/표시 문제 방지) -->
+    <div id="createAccountModal" class="overlay hidden" style="z-index:9999; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); pointer-events:auto;">
+        <h2>계정 새로 만들기</h2>
+        <input type="text" id="newAccountName" placeholder="계정 아이디" maxlength="20" class="account-input" style="margin:8px 0;">
+        <input type="text" id="newProfile" placeholder="프로필 이름 (순위에 표시됨)" maxlength="15" class="account-input" style="margin:8px 0; width:280px;">
+        <div class="profile-draw-section">
+            <p>프로필 그림 그리기 (순위에 표시)</p>
+            <div class="profile-canvas-wrap">
+                <canvas id="newProfileCanvas" width="64" height="64" style="width:96px;height:96px;"></canvas>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    <div style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#b8b8ff;">
+                        <span>굵기</span>
+                        <input type="range" id="newProfileBrushSize" min="1" max="12" value="3" style="width:70px;">
+                        <span id="newProfileBrushSizeVal">3</span>
+                    </div>
+                    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                        <button type="button" class="profile-color-btn active" data-color="#000000" title="검정"></button>
+                        <button type="button" class="profile-color-btn" data-color="#ffffff" title="흰색" style="border:1px solid #666;"></button>
+                        <button type="button" class="profile-color-btn" data-color="#ff0000" title="빨강"></button>
+                        <button type="button" class="profile-color-btn" data-color="#00ff00" title="초록"></button>
+                        <button type="button" class="profile-color-btn" data-color="#0000ff" title="파랑"></button>
+                        <button type="button" class="profile-color-btn" data-color="#ffff00" title="노랑"></button>
+                        <button type="button" class="profile-color-btn" data-color="#ff00ff" title="분홍"></button>
+                    </div>
+                    <button type="button" class="btn btn-small btn-outline" id="newProfileClearBtn">지우기</button>
+                </div>
+            </div>
+        </div>
+        <div class="input-with-toggle">
+            <input type="password" id="newPassword" placeholder="비밀번호" maxlength="30" class="account-input">
+            <button type="button" class="btn-toggle-pw" id="toggleNewPassword" title="비밀번호 보기">👁</button>
+        </div>
+        <div>
+            <div class="input-with-toggle">
+                <input type="password" id="newPasswordConfirm" placeholder="비밀번호 확인" maxlength="30" class="account-input">
+                <button type="button" class="btn-toggle-pw" id="toggleNewPasswordConfirm" title="비밀번호 보기">👁</button>
+            </div>
+            <p id="passwordMatchMsg" class="password-match-msg" style="display:none;"></p>
+        </div>
+        <input type="text" id="newQuestion" placeholder="비밀번호 찾기 질문 (예: 어릴적 별명은?)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+        <input type="text" id="newHint" placeholder="힌트 (예: 초등학교 때 불렸던 이름)" maxlength="50" class="account-input" style="margin:8px 0; width:280px;">
+        <input type="text" id="newAnswer" placeholder="질문에 대한 답" maxlength="30" class="account-input" style="margin:8px 0;">
+        <div class="overlay-buttons" style="margin-top:15px;">
+            <button type="button" class="btn" id="createAccountSubmitBtn" onclick="typeof handleCreateAccount==='function'&&handleCreateAccount()">생성</button>
+            <button type="button" class="btn btn-small btn-outline" id="createAccountCancelBtn" onclick="typeof hideCreateAccountModal==='function'&&hideCreateAccountModal()">취소</button>
+        </div>
+    </div>
+
+    <!-- 미니게임: 테트리스 -->
+    <div id="minigameTetrisOverlay" class="overlay hidden" style="z-index:9998;">
+        <h2>🎮 테트리스</h2>
+        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; justify-content:center;">
+            <canvas id="tetrisCanvas" width="200" height="400" style="background:#111; border:2px solid #667eea; border-radius:4px;"></canvas>
+            <div style="text-align:left; color:#b8b8ff;">
+                <p><strong>점수:</strong> <span id="tetrisScore">0</span></p>
+                <p><strong>다음 블록:</strong></p>
+                <canvas id="tetrisNextCanvas" width="80" height="80" style="background:#1a1a2e; border:1px solid #444; border-radius:4px; margin-top:4px;"></canvas>
+                <p style="margin-top:12px; font-size:0.9rem;">←→ 이동, ↑ 회전<br>↓ 빠르게 내리기<br>스페이스: 즉시 착지</p>
+            </div>
+        </div>
+        <button type="button" class="btn" id="tetrisCloseBtn" style="margin-top:16px;">닫기</button>
+    </div>
+
+    <!-- 미니게임: 터치 타이쿤 -->
+    <div id="minigameTouchTycoonOverlay" class="overlay hidden" style="z-index:9998;">
+        <h2>🎮 터치 타이쿤</h2>
+        <p>공을 클릭하면 코인 +1!</p>
+        <div style="display:flex; gap:12px; align-items:center; margin:12px 0;">
+            <span>🪙 코인: <span id="touchTycoonCoins">0</span></span>
+        </div>
+        <canvas id="touchTycoonCanvas" width="400" height="400" style="background:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%); border:2px solid #667eea; border-radius:8px; cursor:pointer;"></canvas>
+        <button type="button" class="btn" id="touchTycoonCloseBtn" style="margin-top:16px;">닫기</button>
+    </div>
+
+    <script type="module" src="firebase.js"></script>
+</body>
+</html>

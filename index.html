@@ -67,6 +67,28 @@
             font-weight: 700;
         }
         
+        .lives-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .lives-bar-wrap .label { font-weight: 700; }
+        .lives-bar {
+            width: 72px;
+            height: 12px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid rgba(var(--game-purple), 0.4);
+        }
+        .lives-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 5px;
+            transition: width 0.25s ease;
+        }
+        .game-sidebar .lives-bar { width: 52px; height: 10px; }
+        
         canvas {
             display: block;
             background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
@@ -528,6 +550,12 @@
             to { transform: scale(1.1); }
         }
         
+        #reviveOverlay.revive-white { background: #fff !important; }
+        #reviveOverlay.revive-white #reviveOverlayText { color: #fff; opacity: 0; }
+        
+        #stage6WhiteFadeOverlay { background: rgba(0,0,0,0); transition: background 2s ease; }
+        #stage6WhiteFadeOverlay.stage6-white { background: #fff !important; }
+        
         /* 회전 안내 오버레이: 전체 뷰포트 고정 (세로 모드에서 잘림 방지) */
         #rotateOverlay {
             position: fixed !important;
@@ -612,7 +640,7 @@
             <div class="info-bar info-top">
                 <span>스테이지: <span id="stage" class="stageVal">1</span></span>
                 <span>점수: <span id="score" class="scoreVal">0</span></span>
-                <span>생명: <span id="lives" class="livesVal">3</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" id="livesFill" style="width:100%"></div></div></span>
                 <span>🪙 <span id="coins" class="coinVal">0</span></span>
             </div>
             <canvas id="gameCanvas" width="800" height="600"></canvas>
@@ -630,7 +658,7 @@
             <div class="info-bar">
                 <span>스테이지: <span class="stageVal">1</span></span>
                 <span>점수: <span class="scoreVal">0</span></span>
-                <span>생명: <span class="livesVal">3</span></span>
+                <span class="lives-bar-wrap"><span class="label">생명</span><div class="lives-bar"><div class="lives-bar-fill livesVal" style="width:100%"></div></div></span>
                 <span>🪙 <span class="coinVal">0</span></span>
             </div>
             <p class="controls">마우스/방향키로 패들 이동 · 스페이스바로 공 출발 · ]: 옵션</p>
@@ -674,13 +702,29 @@
             <p>모든 벽돌을 깨면 승리! <span id="currentAccountDisplay"></span></p>
             <div class="overlay-buttons" style="margin-bottom:15px;">
                 <button class="btn" id="startBtn">게임 시작</button>
+                <button class="btn btn-outline" id="coopModeBtn">협동 모드</button>
                 <button class="btn btn-small btn-outline" id="editAccountBtn">계정 정보 수정</button>
+            </div>
+        </div>
+
+        <div id="coopOverlay" class="overlay hidden" style="z-index: 15;">
+            <h2>🤝 협동 모드</h2>
+            <p style="max-width:360px; line-height:1.6;">한 기기에서 두 명이 플레이합니다. <strong>같이할 상대를 먼저 찾아주세요.</strong></p>
+            <div style="text-align:left; max-width:360px; margin:15px 0; padding:12px; background:rgba(102,126,234,0.2); border-radius:8px; color:#b8b8ff; line-height:1.7;">
+                <p>• <strong>1P</strong>: 방향키(← →) 또는 마우스로 <strong>아래 판</strong> 조종</p>
+                <p>• <strong>2P</strong>: <strong>A / D</strong> 키로 <strong>위쪽 판</strong> 조종</p>
+                <p>• 공이 위·아래 판에 맞으면 튕겨 나갑니다. 벽돌을 함께 깨세요!</p>
+            </div>
+            <div class="overlay-buttons">
+                <button class="btn" id="coopStartBtn">시작</button>
+                <button class="btn btn-outline" id="coopBackBtn">뒤로</button>
             </div>
         </div>
         
         <div id="gameOverOverlay" class="overlay hidden" style="z-index: 20;">
             <h2>Game Over</h2>
             <p style="font-size:0.9rem; color:#b8b8ff; margin-top:-10px; margin-bottom:15px;">게임오버</p>
+            <p id="gameOver100DeathText" style="display:none; font-size:1.1rem; color:#ffb8b8; margin-bottom:10px;"></p>
             <p>최종 점수: <span id="finalScore">0</span></p>
             <div id="gameOverFirstPlace" class="first-place hidden"></div>
             <div id="rankingDisplay" class="ranking-box"></div>
@@ -744,6 +788,14 @@
             <button class="btn btn-small btn-outline" id="customLevelsModalClose">닫기</button>
         </div>
         
+        <div id="mercyAttackOverlay" class="overlay hidden" style="z-index:23;">
+            <h2>보스 체력이 1 남았다</h2>
+            <p style="font-size:0.95rem; color:#b8b8ff;">어떻게 하시겠습니까?</p>
+            <div class="overlay-buttons" style="margin-top:20px; gap:20px;">
+                <button class="btn" id="mercyBtn">자비</button>
+                <button class="btn btn-outline" id="attackBtn">공격</button>
+            </div>
+        </div>
         <div id="bossUpgradeOverlay" class="overlay hidden" style="z-index:22;">
             <h2>🏆 보스 처치! 능력 선택</h2>
             <p style="font-size:0.9rem; color:#b8b8ff;">하나를 선택하세요</p>
@@ -759,6 +811,13 @@
         <div id="stageMsgOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.7);">
             <h2 id="stageMsgText"></h2>
         </div>
+        
+        <!-- 부활 연출: 대사 → 하얀 화면 → 부활 -->
+        <div id="reviveOverlay" class="overlay hidden" style="z-index:24; background: rgba(0,0,0,0.9); transition: background 1.5s ease;">
+            <p id="reviveOverlayText" style="font-size: 1.5rem; color: #fff; text-align: center; max-width: 90%; transition: opacity 0.8s ease;"></p>
+        </div>
+        
+        <div id="stage6WhiteFadeOverlay" class="overlay hidden" style="z-index:26; pointer-events: none;"></div>
         
         <div id="passwordPromptModal" class="overlay hidden" style="z-index:25;">
             <h2 id="passwordPromptTitle">비밀번호 입력</h2>
@@ -876,6 +935,11 @@
                     <option value="en">English</option>
                 </select>
             </div>
+            <div class="shop-section">
+                <h3>🏅 발전과제</h3>
+                <p style="font-size:0.9rem; color:#b8b8ff;">달성한 발전과제를 확인하세요</p>
+                <div id="achievementsList" style="display:flex; flex-direction:column; gap:6px; margin-top:8px;"></div>
+            </div>
             <div class="option-row" style="flex-direction:column; align-items:stretch;">
                 <details style="cursor:pointer;">
                     <summary style="font-weight:bold; padding:8px 0;">📋 업데이트 내역</summary>
@@ -886,6 +950,11 @@
 • 보스 방어막: 스테이지4~6 (13/9/5초 간격)
 • 게스트 모드, 튜토리얼 추가</div>
                 </details>
+            </div>
+            <div class="shop-section" id="forgeSection">
+                <h3>🔨 대장간</h3>
+                <p style="font-size:0.9rem; color:#fff;">🪙 코인: <span id="forgeCoinVal" class="coinVal">0</span></p>
+                <div id="forgeGrid" style="display:flex; flex-direction:column; gap:8px; margin-top:8px; color:#fff;"></div>
             </div>
             <div class="shop-section equipment-shop">
                 <h3>⚔️ 장비 상점</h3>
@@ -901,6 +970,13 @@
                 <div>
                     <span style="font-size:0.9rem; color:#b8b8ff;">공 스킨</span>
                     <div class="shop-grid" id="ballSkinGrid"></div>
+                </div>
+            </div>
+            <div class="shop-section">
+                <h3>🎮 미니게임</h3>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                    <button type="button" class="btn btn-outline" id="minigameTetrisBtn">1. 테트리스</button>
+                    <button type="button" class="btn btn-outline" id="minigameTouchTycoonBtn">2. 터치 타이쿤 (공 클릭 시 코인 +1)</button>
                 </div>
             </div>
             <div class="option-row">
@@ -969,6 +1045,32 @@
             <button type="button" class="btn" id="createAccountSubmitBtn" onclick="typeof handleCreateAccount==='function'&&handleCreateAccount()">생성</button>
             <button type="button" class="btn btn-small btn-outline" id="createAccountCancelBtn" onclick="typeof hideCreateAccountModal==='function'&&hideCreateAccountModal()">취소</button>
         </div>
+    </div>
+
+    <!-- 미니게임: 테트리스 -->
+    <div id="minigameTetrisOverlay" class="overlay hidden" style="z-index:9998;">
+        <h2>🎮 테트리스</h2>
+        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; justify-content:center;">
+            <canvas id="tetrisCanvas" width="200" height="400" style="background:#111; border:2px solid #667eea; border-radius:4px;"></canvas>
+            <div style="text-align:left; color:#b8b8ff;">
+                <p><strong>점수:</strong> <span id="tetrisScore">0</span></p>
+                <p><strong>다음 블록:</strong></p>
+                <canvas id="tetrisNextCanvas" width="80" height="80" style="background:#1a1a2e; border:1px solid #444; border-radius:4px; margin-top:4px;"></canvas>
+                <p style="margin-top:12px; font-size:0.9rem;">←→ 이동, ↑ 회전<br>↓ 빠르게 내리기<br>스페이스: 즉시 착지</p>
+            </div>
+        </div>
+        <button type="button" class="btn" id="tetrisCloseBtn" style="margin-top:16px;">닫기</button>
+    </div>
+
+    <!-- 미니게임: 터치 타이쿤 -->
+    <div id="minigameTouchTycoonOverlay" class="overlay hidden" style="z-index:9998;">
+        <h2>🎮 터치 타이쿤</h2>
+        <p>공을 클릭하면 코인 +1!</p>
+        <div style="display:flex; gap:12px; align-items:center; margin:12px 0;">
+            <span>🪙 코인: <span id="touchTycoonCoins">0</span></span>
+        </div>
+        <canvas id="touchTycoonCanvas" width="400" height="400" style="background:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%); border:2px solid #667eea; border-radius:8px; cursor:pointer;"></canvas>
+        <button type="button" class="btn" id="touchTycoonCloseBtn" style="margin-top:16px;">닫기</button>
     </div>
 
     <script type="module" src="firebase.js"></script>
