@@ -151,13 +151,20 @@
             position: absolute;
             top: 15px;
             right: 15px;
-            z-index: 1;
+            z-index: 10;
+            pointer-events: auto;
         }
         .login-guest-btn {
             position: absolute;
             top: 15px;
             left: 15px;
-            z-index: 1;
+            z-index: 10;
+            pointer-events: auto;
+        }
+        #loginOverlay .overlay-buttons,
+        #loginOverlay h2, #loginOverlay p, #loginOverlay .login-row {
+            position: relative;
+            z-index: 0;
         }
         #loginOverlay, #loginOverlay h2, #loginOverlay p {
             color: #000;
@@ -260,6 +267,25 @@
         .btn-outline:hover {
             background: rgba(102, 126, 234, 0.2);
         }
+        
+        @keyframes game-over-shake {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-2px, -1px); }
+            20% { transform: translate(2px, 1px); }
+            30% { transform: translate(-1px, 2px); }
+            40% { transform: translate(1px, -2px); }
+            50% { transform: translate(-2px, 1px); }
+            60% { transform: translate(2px, -1px); }
+            70% { transform: translate(-1px, -1px); }
+            80% { transform: translate(1px, 1px); }
+            90% { transform: translate(-1px, 0); }
+        }
+        #gameOverOverlay.game-over-visible .game-over-shake {
+            animation: game-over-shake 0.4s ease-in-out 8;
+        }
+        #gameOverOverlay .game-over-hide { display: none !important; }
+        #gameOverOverlay .game-over-death-msg.game-over-msg-hidden { display: none !important; }
+        #gameOverOverlay .game-over-buttons-hidden { display: none !important; }
         
         .account-input {
             padding: 12px 20px;
@@ -722,15 +748,19 @@
         </div>
         
         <div id="gameOverOverlay" class="overlay hidden" style="z-index: 20;">
-            <h2>Game Over</h2>
-            <p style="font-size:0.9rem; color:#b8b8ff; margin-top:-10px; margin-bottom:15px;">게임오버</p>
-            <p id="gameOver100DeathText" style="display:none; font-size:1.1rem; color:#ffb8b8; margin-bottom:10px;"></p>
-            <p>최종 점수: <span id="finalScore">0</span></p>
-            <div id="gameOverFirstPlace" class="first-place hidden"></div>
-            <div id="rankingDisplay" class="ranking-box"></div>
-            <div class="overlay-buttons">
+            <div class="game-over-shake">
+            <h2 class="game-over-hide">Game Over</h2>
+            <p class="game-over-hide" style="font-size:0.9rem; color:#b8b8ff; margin-top:-10px; margin-bottom:15px;">게임오버</p>
+            <p id="gameOverDeathMessage" class="game-over-death-msg" style="font-size:1.2rem; color:#ffb8b8; margin-bottom:20px; text-align:center; min-height:1.5em;"></p>
+            <p id="gameOver100DeathText" class="game-over-hide" style="display:none; font-size:1.1rem; color:#ffb8b8; margin-bottom:10px;"></p>
+            <p class="game-over-hide">최종 점수: <span id="finalScore">0</span></p>
+            <div id="gameOverFirstPlace" class="first-place hidden game-over-hide"></div>
+            <div id="rankingDisplay" class="ranking-box game-over-hide"></div>
+            <div id="gameOverButtons" class="overlay-buttons game-over-buttons-hidden" style="flex-wrap:wrap; gap:10px;">
                 <button class="btn" id="continueBtn">이어서 하기</button>
-                <button class="btn" id="newGameBtn">새로 시작</button>
+                <button class="btn" id="newGameBtn">그만하기</button>
+                <button class="btn btn-outline" id="gameOverBackToLoginBtn">로그인 복귀</button>
+            </div>
             </div>
         </div>
         
@@ -943,11 +973,18 @@
             <div class="option-row" style="flex-direction:column; align-items:stretch;">
                 <details style="cursor:pointer;">
                     <summary style="font-weight:bold; padding:8px 0;">📋 업데이트 내역</summary>
-                    <div id="updateLogContent" style="max-height:200px; overflow-y:auto; font-size:0.85rem; color:#b8b8ff; line-height:1.5; padding:10px; background:rgba(0,0,0,0.3); border-radius:8px; margin-top:6px; white-space:pre-wrap;">[최신 업데이트]
-• 보스 체력 조정: 1~6스테이지 (20,30,40,90,200,1000)
-• 공 데미지: 보스에게 10 (스테이지6: 90)
-• 보스 타격 시 빨간색 데미지 숫자 표시 (0.4초)
-• 보스 방어막: 스테이지4~6 (13/9/5초 간격)
+                    <div id="updateLogContent" style="max-height:200px; overflow-y:auto; font-size:0.85rem; color:#b8b8ff; line-height:1.5; padding:10px; background:rgba(0,0,0,0.3); border-radius:8px; margin-top:6px; white-space:pre-wrap;">[최신]
+• 협동 모드: 2인 플레이 (1P 방향키/마우스, 2P A/D)
+• 사망 시 메시지 4초 후 이어서 하기/그만하기/로그인 복귀 버튼
+• 스테이지5 전환 인트로 (ㄳ터 → 6666666 이미지)
+• 스테이지6 보스 등장 시 잠시 멈춤 + "포효하는 어둠의 기사"
+• 스테이지5 제낫 모드: 판 추적, 제낫 비(HP 20 시 20초)
+• 스테이지5 혼돈: 3→1 시 진짜(핑크)/가짜(빨강) 공, 가짜는 판 통과
+• 스테이지2 보스: 프로깃.png 적용
+
+[이전]
+• 보스 체력: 1~6스테이지 (20,30,40,90,600,1000)
+• 보스 타격 시 데미지 숫자, 방어막 스테이지4~6
 • 게스트 모드, 튜토리얼 추가</div>
                 </details>
             </div>
