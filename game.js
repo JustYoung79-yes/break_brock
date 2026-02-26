@@ -2150,10 +2150,16 @@ function showStageClearAndNext() {
             gameRunning = true;
             gamePaused = false;
             gameLoop();
+            stageClearInProgress = false;
+        } else if (currentStage === 6 && Math.random() < 0.01) {
+            showChijijikVideoThen(() => {
+                showStageStartAndResume();
+                stageClearInProgress = false;
+            });
         } else {
             showStageStartAndResume();
+            stageClearInProgress = false;
         }
-        stageClearInProgress = false;
     }, 2000);
 }
 
@@ -5193,6 +5199,29 @@ function playScreamSound() {
         noiseGain.connect(masterGain);
         noise.start(t);
     } catch (e) {}
+}
+
+function showChijijikVideoThen(callback) {
+    const overlay = document.createElement('div');
+    overlay.id = 'chijijikVideoOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; z-index:999998; background:#000; display:flex; align-items:center; justify-content:center;';
+    const videoSrc = PATH_BASE + '동영상/화면 치지직.mp4';
+    const video = document.createElement('video');
+    video.style.cssText = 'max-width:100%; max-height:100%; width:100%; height:100%; object-fit:contain;';
+    video.playsInline = true;
+    video.muted = false;
+    video.autoplay = true;
+    video.src = videoSrc;
+    function done() {
+        overlay.remove();
+        if (typeof callback === 'function') callback();
+    }
+    video.onended = done;
+    video.onerror = done;
+    overlay.appendChild(video);
+    document.body.appendChild(overlay);
+    video.play().catch(done);
+    setTimeout(done, 60000);
 }
 
 function showSuspendedPunishmentAndExit() {
