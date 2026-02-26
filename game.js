@@ -130,14 +130,24 @@ function toggleFullscreen() {
     } catch (e) { console.warn('fullscreen:', e); }
 }
 
-// 가로 모드 고정 시도
+// 가로 모드 고정 시도 (친구 채팅 열려 있으면 세로 허용을 위해 잠금 안 함)
 function tryLockLandscape() {
-    if (!isMobile()) return;
+    if (!isMobile() || isFriendChatVisible()) return;
     try {
         if (screen.orientation && typeof screen.orientation.lock === 'function') {
             screen.orientation.lock('landscape').catch(() => {});
         }
     } catch (e) { /* 일부 브라우저에서 lock 미지원 */ }
+}
+
+// 화면 방향 잠금 해제 (친구 채팅 시 모바일 세로 모드 허용용)
+function tryUnlockOrientation() {
+    if (!isMobile()) return;
+    try {
+        if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+            screen.orientation.unlock();
+        }
+    } catch (e) { /* 일부 브라우저에서 unlock 미지원 */ }
 }
 
 // 모바일 로그인 후: 가로모드+전체화면 고정 (세로 전환 불가)
@@ -151,11 +161,11 @@ function enforceMobileLandscapeFullscreen() {
     }
 }
 
-// 회전 안내 오버레이 표시 (모바일 세로 모드일 때, 로그인 화면 제외)
+// 회전 안내 오버레이 표시 (모바일 세로 모드일 때, 로그인·친구채팅 화면 제외)
 function updateRotateOverlay() {
     const el = document.getElementById('rotateOverlay');
     if (!el) return;
-    if (isMobile() && !isLandscape() && !isLoginScreenVisible()) {
+    if (isMobile() && !isLandscape() && !isLoginScreenVisible() && !isFriendChatVisible()) {
         el.style.display = 'flex';
         el.classList.remove('hidden');
     } else {
@@ -551,6 +561,7 @@ const FRAME_MS = 1000 / TARGET_FPS;
 
 // 입력 처리
 let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
 let keys = {};
 let lastInputMethod = 'mouse';
 let lastPaddleDirection = 0;
@@ -570,7 +581,9 @@ function getCanvasPos(clientX, clientY) {
 }
 
 document.addEventListener('mousemove', (e) => {
-    mouseX = getCanvasX(e.clientX);
+    const pos = getCanvasPos(e.clientX, e.clientY);
+    mouseX = pos.x;
+    mouseY = pos.y;
     lastInputMethod = 'mouse';
 });
 
@@ -1159,6 +1172,7 @@ function hitBrick(brick, isBullet = false) {
         if (brick.isBomb) setTimeout(() => explodeNearbyBricks(brick), 400);
         applyBrickBreakBonus();
         if (brick.isBoss) {
+            updateDailyQuestProgress(1, 1);
             minions = [];
             minionBullets = [];
             if (currentStage === 5) {
@@ -1476,6 +1490,7 @@ function updateBoss(dt = 1) {
                 brick.y + brick.height > paddle.y && brick.y < paddle.y + paddle.height) {
                 if (now > paddleBossTouchCooldownUntil) {
                     paddleBossTouchCooldownUntil = now + 1000;
+                    if (currentStage === 3) stage3TookDamageThisRun = true;
                     lives--;
                     updateLivesUI();
                     if (typeof playHurtSound === 'function') playHurtSound();
@@ -1537,6 +1552,7 @@ function updateBullets(dt = 1) {
                 if (b.x + b.width > minion.x && b.x < minion.x + minion.width &&
                     yMax > minion.y && yMin < minion.y + minion.height) {
                     minion.hp = 0;
+                    updateDailyQuestProgress(3, 1);
                     coins += 8;
                     updateCoinsUI(coins);
                     hit = true;
@@ -1576,6 +1592,7 @@ function updateBullets(dt = 1) {
                 const threshold = 1 + (options.forgeHealth ?? 0) * 0.2;
                 while (bossBulletDamageAccum >= threshold) {
                     bossBulletDamageAccum -= threshold;
+                    if (currentStage === 3) stage3TookDamageThisRun = true;
                     lives--;
                     updateLivesUI();
                     if (lives <= 0) handleDeath();
@@ -1605,6 +1622,7 @@ function updateBullets(dt = 1) {
             const threshold = 1 + (options.forgeHealth ?? 0) * 0.2;
             while (bossBulletDamageAccum >= threshold) {
                 bossBulletDamageAccum -= threshold;
+                if (currentStage === 3) stage3TookDamageThisRun = true;
                 lives--;
                 updateLivesUI();
                 if (lives <= 0) handleDeath();
@@ -1791,7 +1809,7 @@ function updateBall(dt = 1) {
         }
     }
 
-    if (!stage5ScytheRainActive) {
+    if (!stage5ScytheRainActive && !stage5ScytheRain30Active) {
     if (!ballLaunched && balls.length > 0) {
         balls[0].x = paddle.x + paddle.width / 2;
         balls[0].y = paddle.y - BALL_RADIUS - 5;
@@ -1856,6 +1874,8 @@ function updateBall(dt = 1) {
                 if (wasReal) {
                     const hasRealLeft = balls.some(b => !b.stage5Fake);
                     if (!hasRealLeft) {
+                        if (currentStage === 3) stage3TookDamageThisRun = true;
+                        if (currentStage >= 1 && currentStage <= 4) ballDroppedStages1to4ThisRun = true;
                         playHurtSound();
                         lives--;
                         updateLivesUI();
@@ -1896,6 +1916,7 @@ function updateBall(dt = 1) {
             if (wasReal) {
                 const hasRealLeft = balls.some(b => !b.stage5Fake);
                 if (!hasRealLeft) {
+                    if (currentStage >= 1 && currentStage <= 4) ballDroppedStages1to4ThisRun = true;
                     playHurtSound();
                     lives--;
                     updateLivesUI();
@@ -1918,6 +1939,7 @@ function updateBall(dt = 1) {
             if (ball.x + r > minion.x && ball.x - r < minion.x + minion.width &&
                 ball.y + r > minion.y && ball.y - r < minion.y + minion.height) {
                 minion.hp = 0;
+                updateDailyQuestProgress(3, 1);
                 coins += 8;
                 updateCoinsUI(coins);
                 const dx = ball.x - (minion.x + minion.width / 2);
@@ -2136,8 +2158,15 @@ function showStageClearAndNext() {
     setTimeout(() => {
         if (resetBtn) { resetBtn.style.display = 'none'; }
         ballDamageOverrideStage1to4 = null;
+        if (currentStage === 3) {
+            if (!stage3TookDamageThisRun) completeDailyQuest(2);
+        }
+        if (currentStage === 4) {
+            if (!ballDroppedStages1to4ThisRun) completeDailyQuest(5);
+        }
         currentStage++;
         updateStageUI(currentStage);
+        if (currentStage === 3) stage3TookDamageThisRun = false;
         if (currentStage === 6) {
             const cfg = DIFFICULTY_CONFIG[options.difficulty] || DIFFICULTY_CONFIG.medium;
             options.ballSpeed = cfg.stage6BallSpeed;
@@ -2320,7 +2349,7 @@ function drawPaddleTop() {
 
 function drawBall() {
     if (stage5IntroPhase >= 1) return;
-    if (currentStage === 5 && Date.now() < stage5ScytheRainUntil) return;
+    if (currentStage === 5 && (Date.now() < stage5ScytheRainUntil || Date.now() < stage5ScytheRain30Until)) return;
     const powerBallActive = activeItems.some(i => i.type === 'powerBall');
     const rMult = (powerBallActive ? 1.5 : 1) * (bossUpgrades.ballSizeMult || 1);
     const skin = BALL_SKINS.find(s => s.id === (options.ballSkin || 'default')) || BALL_SKINS[0];
@@ -2828,6 +2857,14 @@ function draw() {
 
     if (screenShakeIntensity > 0.1) ctx.restore();
     screenShakeIntensity *= 0.75;
+
+    // 게임 중 커서를 픽셀(작은 점)로 표시
+    if (gameRunning && !creatorMode) {
+        const cx = Math.max(0, Math.min(canvas.width, mouseX));
+        const cy = Math.max(0, Math.min(canvas.height, mouseY));
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.floor(cx - 1), Math.floor(cy - 1), 2, 2);
+    }
 }
 
 function isAnyPauseOverlayVisible() {
@@ -2900,6 +2937,9 @@ function applyOptions() {
 
 function startGame(isNewGame = true) {
     stageClearInProgress = false;
+    stage3TookDamageThisRun = false;
+    ballDroppedStages1to4ThisRun = false;
+    if (isNewGame) startReplayRecording();
     applyOptions();
     gameRunning = true;
     gamePaused = false;
@@ -2929,12 +2969,14 @@ function startGame(isNewGame = true) {
         currentStage = (STAGE6_ONLY || BOSS6_TEST) ? 6 : (BOSS5_TEST ? 5 : (BOSS4_TEST || STAGE4_ONLY ? 4 : (STAGE3_ONLY ? 3 : 1)));
         updateStageUI(currentStage);
         bricks = createBricks();
+        if (currentStage === 3) stage3TookDamageThisRun = false;
     } else if (savedGameState) {
         score = savedGameState.score;
         lives = savedGameState.lives;
         currentStage = savedGameState.stage || 1;
         updateStageUI(currentStage);
         bricks = savedGameState.bricks;
+        if (currentStage === 3) stage3TookDamageThisRun = false;
     } else {
         score = 0;
         lives = 3;
@@ -2958,6 +3000,7 @@ function startGame(isNewGame = true) {
     mouseX = canvas.width / 2;
     resetBall();
     applyEquipmentAtStart();
+    if (currentAccount && !isGuestAccount()) startLiveStateAndCheerIntervals();
     showStageStartAndResume();
 }
 
@@ -3000,6 +3043,162 @@ function restartGame() {
     document.getElementById('gameOverOverlay')?.classList.remove('game-over-visible');
     document.getElementById('winOverlay')?.classList.add('hidden');
     startGame(true);
+}
+
+// ---------- 관전: 라이브 상태 브로드캐스트 & 응원 수신 ----------
+let liveStateIntervalId = null;
+let cheerCheckIntervalId = null;
+const LIVE_STATE_INTERVAL_MS = 600;
+const CHEER_CHECK_INTERVAL_MS = 1500;
+
+function getSerializedLiveState() {
+    let ballX = canvas.width / 2, ballY = canvas.height / 2;
+    if (balls.length > 0 && balls[0]) {
+        ballX = balls[0].x;
+        ballY = balls[0].y;
+    }
+    let bossHp = null;
+    for (const row of bricks) {
+        for (const b of row) {
+            if (b && b.visible && b.isBoss) { bossHp = b.hp; break; }
+        }
+        if (bossHp != null) break;
+    }
+    const bricksGrid = bricks.map(row => row.map(b => (b && b.visible) ? 1 : 0));
+    return {
+        accountId: currentAccount,
+        stage: currentStage,
+        score,
+        lives,
+        paddleX: paddle.x,
+        ballX,
+        ballY,
+        bricks: bricksGrid,
+        bossHp,
+        canvasW: canvas.width,
+        canvasH: canvas.height,
+        lastUpdated: Date.now()
+    };
+}
+
+async function saveLiveGameState() {
+    if (!currentAccount || isGuestAccount() || !gameRunning) return;
+    try {
+        const data = await getGameDoc();
+        const liveGames = (data.liveGames && typeof data.liveGames === 'object') ? { ...data.liveGames } : {};
+        liveGames[currentAccount] = getSerializedLiveState();
+        await withTimeout(window.firestoreSetDoc({ liveGames }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    } catch (e) { /* ignore */ }
+}
+
+async function clearLiveGameState() {
+    if (!currentAccount || isGuestAccount()) return;
+    try {
+        const data = await getGameDoc();
+        const liveGames = (data.liveGames && typeof data.liveGames === 'object') ? { ...data.liveGames } : {};
+        liveGames[currentAccount] = null;
+        await withTimeout(window.firestoreSetDoc({ liveGames }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    } catch (e) { /* ignore */ }
+}
+
+function applyCheerEffect() {
+    let bossBrick = null;
+    outer: for (const row of bricks) {
+        for (const b of row) {
+            if (b && b.visible && b.isBoss) { bossBrick = b; break outer; }
+        }
+    }
+    if (bossBrick) {
+        bossBrick.hp = Math.max(0, (bossBrick.hp || 0) - 19);
+        return;
+    }
+    const rowsWithBricks = [];
+    bricks.forEach((row, ri) => {
+        const hasVisible = row.some(b => b && b.visible);
+        if (hasVisible) rowsWithBricks.push(ri);
+    });
+    if (rowsWithBricks.length > 0) {
+        const ri = rowsWithBricks[Math.floor(Math.random() * rowsWithBricks.length)];
+        bricks[ri].forEach(b => { if (b) { b.visible = false; b.hp = 0; } });
+    }
+}
+
+async function checkAndApplyCheer() {
+    if (!currentAccount || isGuestAccount() || !gameRunning) return;
+    try {
+        const data = await getGameDoc();
+        const req = data.cheerRequests && data.cheerRequests[currentAccount];
+        if (!req) return;
+        const cheerRequests = (data.cheerRequests && typeof data.cheerRequests === 'object') ? { ...data.cheerRequests } : {};
+        cheerRequests[currentAccount] = null;
+        await withTimeout(window.firestoreSetDoc({ cheerRequests }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+        applyCheerEffect();
+    } catch (e) { /* ignore */ }
+}
+
+function startLiveStateAndCheerIntervals() {
+    stopLiveStateAndCheerIntervals();
+    if (!currentAccount || isGuestAccount()) return;
+    liveStateIntervalId = setInterval(saveLiveGameState, LIVE_STATE_INTERVAL_MS);
+    cheerCheckIntervalId = setInterval(checkAndApplyCheer, CHEER_CHECK_INTERVAL_MS);
+}
+function stopLiveStateAndCheerIntervals() {
+    if (liveStateIntervalId) { clearInterval(liveStateIntervalId); liveStateIntervalId = null; }
+    if (cheerCheckIntervalId) { clearInterval(cheerCheckIntervalId); cheerCheckIntervalId = null; }
+}
+
+// ---------- 리플레이 녹화 (클리어 시 재생용) ----------
+let replayMediaRecorder = null;
+let replayChunks = [];
+let lastReplayBlob = null;
+
+function startReplayRecording() {
+    if (!canvas || !canvas.captureStream) return;
+    try {
+        replayChunks = [];
+        const stream = canvas.captureStream(15);
+        const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+        const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1200000 });
+        rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) replayChunks.push(e.data); };
+        rec.onstop = () => { lastReplayBlob = new Blob(replayChunks, { type: mime }); };
+        rec.start(2000);
+        replayMediaRecorder = rec;
+    } catch (e) { console.warn('리플레이 녹화 시작 실패:', e); }
+}
+
+function stopReplayRecording(discard) {
+    if (!replayMediaRecorder) return;
+    try {
+        if (replayMediaRecorder.state !== 'inactive') replayMediaRecorder.stop();
+    } catch (e) {}
+    replayMediaRecorder = null;
+    if (discard) lastReplayBlob = null;
+}
+
+function showReplayModal() {
+    const modal = document.getElementById('replayModal');
+    const videoEl = document.getElementById('replayVideo');
+    if (!modal || !videoEl) return;
+    if (!lastReplayBlob) {
+        alert('저장된 리플레이가 없습니다.');
+        return;
+    }
+    const url = URL.createObjectURL(lastReplayBlob);
+    videoEl.src = url;
+    modal.classList.remove('hidden');
+    videoEl.play().catch(() => {});
+}
+function closeReplayModal() {
+    const modal = document.getElementById('replayModal');
+    const videoEl = document.getElementById('replayVideo');
+    if (modal) modal.classList.add('hidden');
+    if (videoEl) {
+        videoEl.pause();
+        const url = videoEl.src;
+        videoEl.removeAttribute('src');
+        videoEl.load();
+        if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
 }
 
 let audioCtx = null;
@@ -3080,8 +3279,8 @@ function stopBGM() {
     }
 }
 
-const MAX_RANKING = 40;
-const RANKING_DISPLAY_COUNT = 40;
+const MAX_RANKING = 1000;
+const RANKING_DISPLAY_COUNT = 1000;
 const FIRESTORE_TIMEOUT_MS = 15000;
 
 function isOnline() {
@@ -3121,6 +3320,14 @@ function withTimeout(promise, ms) {
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error('타임아웃')), ms))
     ]);
+}
+
+async function getGameDoc() {
+    if (!firestoreDb) return null;
+    try {
+        const docSnap = await withTimeout(window.firestoreGetDoc(), FIRESTORE_TIMEOUT_MS);
+        return (docSnap?.exists ? docSnap.data() : null) || {};
+    } catch (e) { return null; }
 }
 
 async function getAccounts() {
@@ -3457,6 +3664,7 @@ async function loadOptionsForAccount(accountName) {
     coins = options.coins;
     setMaxCoins(Math.max(getMaxCoins(), coins));
     updateCoinsUI(coins);
+    grantBackgroundCoins();
     const diffEl = document.getElementById('difficulty');
     if (diffEl) diffEl.value = options.difficulty || 'easy';
 }
@@ -3517,6 +3725,31 @@ function saveCoins() {
         options.coins = coins;
         saveOptionsToAccount().catch(() => {});
     }
+}
+
+// 게임을 키지 않았을 때 1분마다 1코인 적립 (다시 열었을 때 지급)
+function getLastActiveAt() {
+    try {
+        const v = localStorage.getItem(STORAGE_PREFIX + 'lastActiveAt');
+        return v ? parseInt(v, 10) : null;
+    } catch (e) { return null; }
+}
+function setLastActiveAt(ts) {
+    try { localStorage.setItem(STORAGE_PREFIX + 'lastActiveAt', String(ts)); } catch (e) {}
+}
+function grantBackgroundCoins() {
+    const last = getLastActiveAt();
+    if (last != null) {
+        const minutes = Math.floor((Date.now() - last) / 60000);
+        if (minutes > 0) {
+            coins = (options.coins ?? coins ?? 0) + minutes;
+            options.coins = coins;
+            setMaxCoins(Math.max(getMaxCoins(), coins));
+            saveCoins();
+            if (typeof updateCoinsUI === 'function') updateCoinsUI(coins);
+        }
+    }
+    setLastActiveAt(Date.now());
 }
 
 async function getRanking() {
@@ -3661,6 +3894,84 @@ function setStage5Cleared() {
     try { localStorage.setItem(STORAGE_PREFIX + 'stage5Cleared', '1'); } catch (e) {}
 }
 
+// ---------- 일일 퀘스트 (매일 랜덤 3개) ----------
+const DAILY_QUEST_LIST = [
+    { id: 1, name: '보스 한번 잡기', target: 1 },
+    { id: 2, name: '한번도 안 맞고 스테이지3 클리어하기', target: 1 },
+    { id: 3, name: '부하 몬스터 10마리 잡기', target: 10 },
+    { id: 4, name: '순위에서 9위 이상 차지하기', target: 1 },
+    { id: 5, name: '공 한번도 떨어트리지 않고 스테이지1~4 클리어하기', target: 1 },
+    { id: 6, name: '게임 클리어하기', target: 1 }
+];
+
+function getTodayKey() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function getDailyQuestsFromStorage() {
+    try {
+        const raw = localStorage.getItem(STORAGE_PREFIX + 'dailyQuests');
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) { return null; }
+}
+
+function setDailyQuestsToStorage(data) {
+    try {
+        localStorage.setItem(STORAGE_PREFIX + 'dailyQuests', JSON.stringify(data));
+    } catch (e) {}
+}
+
+function getDailyQuests() {
+    const today = getTodayKey();
+    let data = getDailyQuestsFromStorage();
+    if (!data || data.date !== today) {
+        const ids = [1, 2, 3, 4, 5, 6];
+        for (let i = ids.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [ids[i], ids[j]] = [ids[j], ids[i]];
+        }
+        data = {
+            date: today,
+            ids: ids.slice(0, 3),
+            progress: {},
+            completed: {}
+        };
+        setDailyQuestsToStorage(data);
+    }
+    return data;
+}
+
+function updateDailyQuestProgress(questId, value) {
+    const q = getDailyQuests();
+    if (!q.ids.includes(questId) || q.completed[questId]) return;
+    const info = DAILY_QUEST_LIST.find(x => x.id === questId);
+    if (!info) return;
+    const current = (q.progress[questId] || 0) + value;
+    q.progress[questId] = current;
+    if (current >= info.target) {
+        q.completed[questId] = true;
+        q.progress[questId] = info.target;
+    }
+    setDailyQuestsToStorage(q);
+    if (typeof renderDailyQuestsUI === 'function') renderDailyQuestsUI();
+}
+
+function completeDailyQuest(questId) {
+    const q = getDailyQuests();
+    if (!q.ids.includes(questId) || q.completed[questId]) return;
+    q.completed[questId] = true;
+    const info = DAILY_QUEST_LIST.find(x => x.id === questId);
+    if (info) q.progress[questId] = info.target;
+    setDailyQuestsToStorage(q);
+    if (typeof renderDailyQuestsUI === 'function') renderDailyQuestsUI();
+}
+
+// 현재 플레이 런에서만 쓰는 퀘스트용 플래그 (startGame 시 초기화)
+let stage3TookDamageThisRun = false;
+let ballDroppedStages1to4ThisRun = false;
+
 const ACHIEVEMENTS = [
     { id: 'firstDeath', name: '첫번째 죽음', desc: '한 번 죽으면 달성할 수 있어', check: () => getTotalDeaths() >= 1 },
     { id: 'death10', name: '10번째 죽음', desc: '열 번 죽으면 달성할 수 있어', check: () => getTotalDeaths() >= 10 },
@@ -3713,6 +4024,9 @@ function startReviveSequence() {
 }
 
 function gameOver(show100DeathMessage) {
+    stopReplayRecording(true);
+    stopLiveStateAndCheerIntervals();
+    clearLiveGameState().catch(() => {});
     gameRunning = false;
     stopBGM();
     cancelAnimationFrame(animationId);
@@ -3745,7 +4059,8 @@ function gameOver(show100DeathMessage) {
     }, 4000);
     (async () => {
         try {
-            await saveToRanking(score);
+            const rank = await saveToRanking(score);
+            if (rank >= 1 && rank <= 9) completeDailyQuest(4);
             const ranking = await getRanking();
             const isFirst = ranking.length > 0 && ranking[0].score === score;
             const goFirstEl = document.getElementById('gameOverFirstPlace');
@@ -3767,6 +4082,9 @@ function gameOver(show100DeathMessage) {
 }
 
 function winGame() {
+    stopReplayRecording(false);
+    stopLiveStateAndCheerIntervals();
+    clearLiveGameState().catch(() => {});
     gameRunning = false;
     updateBulletFireButtonVisibility();
     stopBGM();
@@ -3782,7 +4100,9 @@ function winGame() {
     if (resetMyBtn) resetMyBtn.style.display = isGuestAccount() ? 'none' : '';
     (async () => {
         try {
-            await saveToRanking(score);
+            completeDailyQuest(6);
+            const rank = await saveToRanking(score);
+            if (rank >= 1 && rank <= 9) completeDailyQuest(4);
             const ranking = await getRanking();
             const isFirst = ranking.length > 0 && ranking[0].score === score;
             const celebrationEl = document.getElementById('firstPlaceCelebration');
@@ -3993,8 +4313,33 @@ function openOptions() {
     initForgeShop();
     initEquipmentShop();
     updateAchievementsList();
+    renderDailyQuestsUI();
     initFriendsSection();
     document.getElementById('optionsPanel')?.classList.remove('hidden');
+}
+
+function renderDailyQuestsUI() {
+    const container = document.getElementById('dailyQuestsList');
+    if (!container) return;
+    const q = getDailyQuests();
+    const today = getTodayKey();
+    container.innerHTML = '<p style="font-size:0.85rem; color:#b8b8ff; margin-bottom:6px;">오늘(' + today + ') 퀘스트</p>';
+    q.ids.forEach((questId, i) => {
+        const info = DAILY_QUEST_LIST.find(x => x.id === questId);
+        if (!info) return;
+        const done = !!q.completed[questId];
+        const progress = q.progress[questId] || 0;
+        const text = info.target > 1 ? info.name + ' (' + Math.min(progress, info.target) + '/' + info.target + ')' : info.name;
+        const row = document.createElement('div');
+        row.className = 'option-row';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.style.padding = '6px 8px';
+        row.style.background = done ? 'rgba(34,197,94,0.15)' : 'rgba(0,0,0,0.2)';
+        row.style.borderRadius = '8px';
+        row.innerHTML = '<span style="font-size:1.2rem;">' + (done ? '✅' : '⬜') + '</span><div><strong>' + text + '</strong></div>';
+        container.appendChild(row);
+    });
 }
 
 function updateAchievementsList() {
@@ -4029,9 +4374,36 @@ async function initFriendsSection() {
         if (addMsg) addMsg.textContent = '';
         requestsList.innerHTML = '<p style="color:#888; font-size:0.85rem;">로그인이 필요합니다.</p>';
         friendsList.innerHTML = '<p style="color:#888; font-size:0.85rem;">로그인이 필요합니다.</p>';
+        stopChatNotificationPoll();
+        document.getElementById('chatNotificationRow').style.display = 'none';
         return;
     }
     addBtn.disabled = false;
+    const notifRow = document.getElementById('chatNotificationRow');
+    const notifBtn = document.getElementById('chatNotificationEnableBtn');
+    if (notifRow) {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            notifRow.style.display = 'none';
+            startChatNotificationPoll();
+        } else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+            notifRow.style.display = 'none';
+        } else {
+            notifRow.style.display = (typeof Notification !== 'undefined') ? '' : 'none';
+        }
+    }
+    if (notifBtn && !notifBtn.dataset.bound) {
+        notifBtn.dataset.bound = '1';
+        notifBtn.addEventListener('click', async () => {
+            const p = await requestChatNotificationPermission();
+            if (p === 'granted') {
+                startChatNotificationPoll();
+                if (notifRow) notifRow.style.display = 'none';
+                if (notifBtn) notifBtn.textContent = '알림 켜짐';
+            } else if (p === 'denied' && notifRow) {
+                notifRow.style.display = 'none';
+            }
+        });
+    }
     if (addInput) addInput.placeholder = '친구 아이디 입력';
     try {
         const [friends, requests] = await Promise.all([getFriends(currentAccount), getFriendRequestsTo(currentAccount)]);
@@ -4050,6 +4422,7 @@ async function initFriendsSection() {
                 <span>${escapeHtml(name)}</span>
                 <span>
                     <button type="button" class="btn btn-small" data-friend-chat="${escapeHtml(name)}">채팅</button>
+                    <button type="button" class="btn btn-small" data-friend-spectate="${escapeHtml(name)}">관전</button>
                     <button type="button" class="btn btn-small btn-outline" data-friend-remove="${escapeHtml(name)}">삭제</button>
                 </span>
             </div>`).join('');
@@ -4069,6 +4442,9 @@ async function initFriendsSection() {
         });
         friendsList.querySelectorAll('[data-friend-chat]').forEach(btn => {
             btn.addEventListener('click', () => openFriendChat(btn.dataset.friendChat));
+        });
+        friendsList.querySelectorAll('[data-friend-spectate]').forEach(btn => {
+            btn.addEventListener('click', () => openSpectator(btn.dataset.friendSpectate));
         });
         friendsList.querySelectorAll('[data-friend-remove]').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -4126,11 +4502,17 @@ async function openFriendChat(friendName) {
     if (typeof closeOptions === 'function') closeOptions();
     currentChatFriend = friendName;
     currentChatRoomId = getChatRoomId(currentAccount, friendName);
+    lastChatNotifSeen[currentChatRoomId] = Date.now();
     const modal = document.getElementById('friendChatModal');
     const title = document.getElementById('friendChatTitle');
     if (title) title.textContent = '💬 ' + friendName + ' 님과 채팅';
     if (modal) modal.classList.remove('hidden');
+    if (isMobile()) {
+        tryUnlockOrientation();
+        updateRotateOverlay();
+    }
     await refreshFriendChatMessages();
+    updateLastSeenForCurrentChat();
     document.getElementById('friendChatInput')?.focus();
 }
 
@@ -4156,6 +4538,156 @@ function closeFriendChat() {
     currentChatFriend = '';
     currentChatRoomId = '';
     document.getElementById('friendChatModal')?.classList.add('hidden');
+    if (isMobile()) {
+        tryLockLandscape();
+        updateRotateOverlay();
+    }
+}
+
+// ---------- 채팅 알림 (친구가 메시지 보냈을 때) ----------
+const lastChatNotifSeen = {}; // roomId -> 마지막으로 '본' 메시지 시각( at )
+let chatNotificationPollId = null;
+const CHAT_NOTIFICATION_POLL_MS = 45000;
+
+function requestChatNotificationPermission() {
+    if (typeof Notification === 'undefined') return Promise.resolve('unsupported');
+    if (Notification.permission === 'granted') return Promise.resolve('granted');
+    if (Notification.permission === 'denied') return Promise.resolve('denied');
+    return Notification.requestPermission();
+}
+
+function startChatNotificationPoll() {
+    if (chatNotificationPollId) return;
+    if (!currentAccount || isGuestAccount()) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    chatNotificationPollId = setInterval(checkNewChatMessages, CHAT_NOTIFICATION_POLL_MS);
+}
+
+function stopChatNotificationPoll() {
+    if (chatNotificationPollId) {
+        clearInterval(chatNotificationPollId);
+        chatNotificationPollId = null;
+    }
+}
+
+async function checkNewChatMessages() {
+    if (!currentAccount || isGuestAccount() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+        const friends = await getFriends(currentAccount);
+        for (const friendName of friends) {
+            const roomId = getChatRoomId(currentAccount, friendName);
+            const messages = await getChatMessages(roomId);
+            if (messages.length === 0) continue;
+            const last = messages[messages.length - 1];
+            if (last.from === currentAccount) continue;
+            const lastSeen = lastChatNotifSeen[roomId] || 0;
+            if (last.at <= lastSeen) continue;
+            if (currentChatRoomId === roomId && document.getElementById('friendChatModal') && !document.getElementById('friendChatModal').classList.contains('hidden')) continue;
+            lastChatNotifSeen[roomId] = last.at;
+            try {
+                new Notification('💬 ' + friendName + ' 님의 채팅', {
+                    body: (last.text || '').slice(0, 50) + (last.text && last.text.length > 50 ? '…' : ''),
+                    icon: document.querySelector('link[rel="icon"]')?.href || undefined
+                });
+            } catch (e) { /* ignore */ }
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function updateLastSeenForCurrentChat() {
+    if (!currentChatRoomId) return;
+    getChatMessages(currentChatRoomId).then(messages => {
+        if (messages.length > 0) {
+            const maxAt = Math.max(...messages.map(m => m.at || 0));
+            lastChatNotifSeen[currentChatRoomId] = maxAt;
+        }
+    }).catch(() => {});
+}
+
+// ---------- 관전: 친구 플레이 보기 + 응원 ----------
+let spectatorFriendId = null;
+let spectatorPollId = null;
+
+function drawSpectatorState(state) {
+    const c = document.getElementById('spectatorCanvas');
+    const statusEl = document.getElementById('spectatorStatus');
+    if (!c || !state) return;
+    const ctx = c.getContext('2d');
+    const w = c.width, h = c.height;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#b8b8ff';
+    ctx.font = '14px "Noto Sans KR", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('스테이지 ' + (state.stage || 1) + ' · 점수 ' + (state.score || 0) + ' · 생명 ' + (state.lives ?? 3), 8, 20);
+    if (state.bossHp != null) ctx.fillText('보스 HP ' + state.bossHp, 8, 38);
+    const cw = state.canvasW || options.canvasWidth || 800;
+    const ch = state.canvasH || options.canvasHeight || 600;
+    const padW = 80, padH = 12;
+    const paddleX = Math.max(0, Math.min(w - padW, ((state.paddleX || 0) / cw) * w));
+    ctx.fillStyle = '#e0e0ff';
+    ctx.fillRect(paddleX, h - 30, padW, padH);
+    const bx = ((state.ballX || 0) / cw) * w;
+    const by = ((state.ballY || 0) / ch) * h;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(bx, by, 4, 0, Math.PI * 2);
+    ctx.fill();
+    const rows = state.bricks;
+    if (Array.isArray(rows) && rows.length > 0) {
+        const cellW = w / (rows[0].length || 1);
+        const cellH = Math.min(20, (h - 80) / (rows.length || 1));
+        rows.forEach((row, ri) => {
+            (row || []).forEach((v, ci) => {
+                if (v) {
+                    ctx.fillStyle = 'rgba(138, 43, 226, 0.8)';
+                    ctx.fillRect(ci * cellW + 1, 50 + ri * cellH + 1, cellW - 2, cellH - 2);
+                }
+            });
+        });
+    }
+    if (statusEl) statusEl.textContent = '최종 갱신: ' + new Date(state.lastUpdated || 0).toLocaleTimeString('ko-KR');
+}
+
+async function spectatorPoll() {
+    if (!spectatorFriendId) return;
+    const data = await getGameDoc();
+    const liveGames = data.liveGames || {};
+    const state = liveGames[spectatorFriendId];
+    if (state && state.lastUpdated && Date.now() - state.lastUpdated < 15000) {
+        drawSpectatorState(state);
+    } else {
+        const statusEl = document.getElementById('spectatorStatus');
+        if (statusEl) statusEl.textContent = spectatorFriendId + ' 님이 플레이 중이 아닙니다.';
+    }
+}
+
+async function sendCheerToFriend(friendId) {
+    try {
+        const data = await getGameDoc();
+        const cheerRequests = (data.cheerRequests && typeof data.cheerRequests === 'object') ? { ...data.cheerRequests } : {};
+        cheerRequests[friendId] = Date.now();
+        await withTimeout(window.firestoreSetDoc({ cheerRequests }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+        const btn = document.getElementById('spectatorCheerBtn');
+        if (btn) { btn.disabled = true; setTimeout(() => { btn.disabled = false; }, 3000); }
+    } catch (e) { alert('응원 전송 실패: ' + (e.message || '')); }
+}
+
+function openSpectator(friendName) {
+    if (typeof closeOptions === 'function') closeOptions();
+    spectatorFriendId = friendName;
+    const overlay = document.getElementById('spectatorOverlay');
+    const nameEl = document.getElementById('spectatorFriendName');
+    if (nameEl) nameEl.textContent = friendName;
+    if (overlay) overlay.classList.remove('hidden');
+    spectatorPoll();
+    spectatorPollId = setInterval(spectatorPoll, 800);
+}
+
+function closeSpectator() {
+    spectatorFriendId = null;
+    if (spectatorPollId) { clearInterval(spectatorPollId); spectatorPollId = null; }
+    document.getElementById('spectatorOverlay')?.classList.add('hidden');
 }
 
 async function initFriendsSectionAndBind() {
@@ -4236,6 +4768,11 @@ function updateFullscreenButton() {
 
 function isLoginScreenVisible() {
     const el = document.getElementById('loginOverlay');
+    return el && !el.classList.contains('hidden');
+}
+
+function isFriendChatVisible() {
+    const el = document.getElementById('friendChatModal');
     return el && !el.classList.contains('hidden');
 }
 
@@ -5009,6 +5546,14 @@ if (gameOverBackToLoginBtn) gameOverBackToLoginBtn.addEventListener('click', () 
 });
 const playAgainBtn = document.getElementById('playAgainBtn');
 if (playAgainBtn) playAgainBtn.addEventListener('click', restartGame);
+const replayViewBtn = document.getElementById('replayViewBtn');
+if (replayViewBtn) replayViewBtn.addEventListener('click', showReplayModal);
+const replayModalClose = document.getElementById('replayModalClose');
+if (replayModalClose) replayModalClose.addEventListener('click', closeReplayModal);
+const spectatorCloseBtn = document.getElementById('spectatorCloseBtn');
+if (spectatorCloseBtn) spectatorCloseBtn.addEventListener('click', closeSpectator);
+const spectatorCheerBtn = document.getElementById('spectatorCheerBtn');
+if (spectatorCheerBtn) spectatorCheerBtn.addEventListener('click', () => { if (spectatorFriendId) sendCheerToFriend(spectatorFriendId); });
 document.querySelectorAll('#resetMyRankingBtn, #resetMyRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetMyRanking); });
 document.querySelectorAll('#resetAllRankingBtn, #resetAllRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetAllRanking); });
 
@@ -5088,6 +5633,7 @@ function doGuestLogin() {
     options.coins = coins;
     setMaxCoins(Math.max(getMaxCoins(), coins));
     updateCoinsUI(coins);
+    grantBackgroundCoins();
     stopLoginBGM();
     document.getElementById('loginOverlay')?.classList.add('hidden');
     const accDisplay = document.getElementById('currentAccountDisplay');
@@ -5818,6 +6364,8 @@ window.hideCreateAccountModal = hideCreateAccountModal;
 window.handleFindPassword = handleFindPassword;
 window.showEditProfileFromLogin = showEditProfileFromLogin;
 window.addEventListener('online', () => { refreshAccountList(); });
+window.addEventListener('focus', () => { if (typeof grantBackgroundCoins === 'function') grantBackgroundCoins(); });
+window.addEventListener('blur', () => { if (typeof setLastActiveAt === 'function') setLastActiveAt(Date.now()); });
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

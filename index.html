@@ -773,8 +773,26 @@
             <div id="firstPlaceCelebration" class="first-place hidden"></div>
             <div class="overlay-buttons" style="flex-wrap:wrap; gap:8px;">
                 <button class="btn" id="playAgainBtn">다시 하기</button>
+                <button type="button" class="btn btn-small" id="replayViewBtn">리플레이 보기</button>
                 <button type="button" class="btn btn-small btn-outline" id="resetMyRankingBtnWin">내 점수 초기화</button>
                 <button type="button" class="btn btn-small btn-outline" id="resetAllRankingBtnWin">전체 점수 초기화</button>
+            </div>
+        </div>
+        
+        <div id="replayModal" class="overlay hidden" style="z-index:25;">
+            <h2>🎬 리플레이</h2>
+            <video id="replayVideo" controls style="max-width:95%; max-height:70vh; background:#000;"></video>
+            <button type="button" class="btn btn-small" id="replayModalClose">닫기</button>
+        </div>
+        
+        <div id="spectatorOverlay" class="overlay hidden" style="z-index:24;">
+            <h2>👀 관전 · <span id="spectatorFriendName"></span></h2>
+            <p style="font-size:0.9rem; color:#b8b8ff;">친구가 플레이 중일 때만 화면이 갱신됩니다.</p>
+            <canvas id="spectatorCanvas" width="400" height="300" style="max-width:95%; background:#1a1a2e; border-radius:8px;"></canvas>
+            <p id="spectatorStatus" style="font-size:0.85rem; color:#888; margin-top:6px;">대기 중...</p>
+            <div style="margin-top:10px;">
+                <button type="button" class="btn btn-small" id="spectatorCheerBtn">🎉 응원</button>
+                <button type="button" class="btn btn-small btn-outline" id="spectatorCloseBtn">닫기</button>
             </div>
         </div>
         
@@ -967,6 +985,11 @@
                 </select>
             </div>
             <div class="shop-section">
+                <h3>📌 일일 퀘스트</h3>
+                <p style="font-size:0.9rem; color:#b8b8ff;">매일 랜덤 3개의 퀘스트가 출제됩니다. (날짜가 바뀌면 갱신)</p>
+                <div id="dailyQuestsList" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;"></div>
+            </div>
+            <div class="shop-section">
                 <h3>🏅 발전과제</h3>
                 <p style="font-size:0.9rem; color:#b8b8ff;">달성한 발전과제를 확인하세요</p>
                 <div id="achievementsList" style="display:flex; flex-direction:column; gap:6px; margin-top:8px;"></div>
@@ -989,6 +1012,7 @@
                         <div id="friendsList" style="margin-top:6px; max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;"></div>
                     </div>
                     <button type="button" class="btn btn-small btn-outline" id="friendRankingBtn" style="margin-top:6px;">📊 친구 순위</button>
+                    <p id="chatNotificationRow" style="margin-top:8px; font-size:0.85rem; color:#b8b8ff; display:none;">친구가 채팅을 보내면 알림을 받으려면 <button type="button" class="btn btn-small" id="chatNotificationEnableBtn">알림 켜기</button></p>
                     <details id="chatViolatorsSection" style="margin-top:10px; display:none;">
                         <summary style="cursor:pointer; font-weight:bold;">🔒 채팅 정지 관리 (공식 계정)</summary>
                         <p style="font-size:0.85rem; color:#b8b8ff; margin:6px 0;">비속어 5회 이상 계정을 1~8일 채팅 정지할 수 있습니다.</p>
