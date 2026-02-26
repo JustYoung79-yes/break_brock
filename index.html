@@ -796,6 +796,46 @@
             </div>
         </div>
         
+        <div id="attendanceResultOverlay" class="hidden" style="position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:30; background:rgba(0,0,0,0.9); color:#fff; padding:14px 24px; border-radius:12px; border:2px solid rgba(138,43,226,0.6); box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+            <p id="attendanceResultText" style="margin:0; font-size:1rem;"></p>
+        </div>
+        
+        <div id="jukeboxModal" class="overlay hidden" style="z-index:26;">
+            <h2>🎵 주크박스</h2>
+            <p style="font-size:0.9rem; color:#b8b8ff;">재생할 BGM을 골라 주세요. (반복 재생)</p>
+            <div id="jukeboxTrackList" style="max-height:320px; overflow-y:auto; margin:12px 0; min-width:260px;"></div>
+            <button type="button" class="btn btn-small btn-outline" id="jukeboxModalClose">닫기</button>
+        </div>
+        
+        <div id="mailboxModal" class="overlay hidden" style="z-index:26;">
+            <h2>📬 우편함</h2>
+            <p style="font-size:0.9rem; color:#b8b8ff;">공지 편지와 친구에게서 받은 편지를 확인할 수 있습니다.</p>
+            <div id="mailboxFormSection" style="display:none; margin:12px 0;">
+                <p style="font-size:0.9rem; font-weight:bold; margin-bottom:6px;">전체 유저에게 편지 쓰기 (공식 계정만)</p>
+                <textarea id="mailboxWriteText" class="account-input" placeholder="편지 내용 (500자까지)" maxlength="500" rows="4" style="width:100%; max-width:400px; margin-bottom:6px; resize:vertical;"></textarea>
+                <div>
+                    <button type="button" class="btn btn-small" id="mailboxSendBtn">보내기</button>
+                    <p id="mailboxMessage" style="font-size:0.85rem; color:#ffd700; margin-top:6px; min-height:1.2em;"></p>
+                </div>
+            </div>
+            <div id="mailboxFriendSection" style="display:none; margin:12px 0;">
+                <p style="font-size:0.9rem; font-weight:bold; margin-bottom:6px;">친구에게 편지 쓰기</p>
+                <div style="margin-bottom:6px;">
+                    <select id="mailboxFriendSelect" class="account-input" style="max-width:200px; margin-right:8px;">
+                        <option value="">친구 선택</option>
+                    </select>
+                    <textarea id="mailboxFriendWriteText" class="account-input" placeholder="편지 내용 (500자까지)" maxlength="500" rows="3" style="width:100%; max-width:400px; margin-top:6px; resize:vertical;"></textarea>
+                </div>
+                <button type="button" class="btn btn-small" id="mailboxFriendSendBtn">보내기</button>
+                <p id="mailboxFriendMessage" style="font-size:0.85rem; color:#ffd700; margin-top:6px; min-height:1.2em;"></p>
+                <p style="font-size:0.9rem; font-weight:bold; margin:12px 0 6px 0;">친구에게서 받은 편지</p>
+                <div id="mailboxFriendLetterList" style="max-height:180px; overflow-y:auto; min-width:280px;"></div>
+            </div>
+            <p style="font-size:0.9rem; font-weight:bold; margin-top:12px;">📢 공지 편지</p>
+            <div id="mailboxLetterList" style="max-height:240px; overflow-y:auto; margin:12px 0; min-width:280px;"></div>
+            <button type="button" class="btn btn-small btn-outline" id="mailboxModalClose">닫기</button>
+        </div>
+        
         <div id="tutorialOverlay" class="overlay hidden" style="z-index:15;">
             <h2>📖 튜토리얼</h2>
             <div style="text-align:left; max-width:360px; margin:15px 0; line-height:1.6; color:#b8b8ff;">
@@ -983,6 +1023,16 @@
                     <option value="ko" selected>한국어</option>
                     <option value="en">English</option>
                 </select>
+            </div>
+            <div class="option-row">
+                <button type="button" class="btn btn-small" id="jukeboxModeBtn">🎵 주크박스 모드</button>
+                <button type="button" class="btn btn-small" id="mailboxBtn">📬 우편함</button>
+            </div>
+            <div class="shop-section">
+                <h3>📅 출석 체크</h3>
+                <p style="font-size:0.9rem; color:#b8b8ff;">매일 접속하면 보상을 받아가세요. (연속 6일 후 1일차로)</p>
+                <div id="attendanceStatus" style="margin-top:8px; font-size:0.9rem;"></div>
+                <div id="attendanceRewardsList" style="margin-top:8px; font-size:0.85rem; color:#b8b8ff;"></div>
             </div>
             <div class="shop-section">
                 <h3>📌 일일 퀘스트</h3>

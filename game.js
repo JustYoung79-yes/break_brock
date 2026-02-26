@@ -686,7 +686,8 @@ document.addEventListener('touchmove', (e) => {
 
 document.addEventListener('keydown', (e) => {
     const isChatInput = e.target?.id === 'friendChatInput' || e.target?.closest?.('#friendChatModal');
-    if (e.key === ' ' && isChatInput) { keys[' '] = true; return; }
+    const isMailboxInput = e.target?.id === 'mailboxWriteText' || e.target?.id === 'mailboxFriendWriteText' || e.target?.closest?.('#mailboxModal');
+    if (e.key === ' ' && (isChatInput || isMailboxInput)) { keys[' '] = true; return; }
     if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
     if (coopMode && ['a', 'A', 'd', 'D'].includes(e.key)) e.preventDefault();
     if (e.key === ']') {
@@ -3216,6 +3217,189 @@ const BGM_FILES = [
     PATH.bgm + 'Stage6.mp3'
 ];
 
+// 주크박스: 게임에서 들었던 BGM 목록 (로그인 + 스테이지 1~6)
+const JUKEBOX_TRACKS = [
+    { name: '로그인', src: PATH.bgm + 'login.mp3' },
+    { name: '스테이지 1', src: BGM_FILES[0] },
+    { name: '스테이지 2', src: BGM_FILES[1] },
+    { name: '스테이지 3', src: BGM_FILES[2] },
+    { name: '스테이지 4', src: BGM_FILES[3] },
+    { name: '스테이지 5', src: BGM_FILES[4] },
+    { name: '스테이지 6', src: BGM_FILES[5] }
+];
+let jukeboxAudio = null;
+let currentJukeboxTrackIndex = -1;
+
+function openJukeboxModal() {
+    stopBGM();
+    stopLoginBGM();
+    stopJukeboxAudio();
+    const modal = document.getElementById('jukeboxModal');
+    const listEl = document.getElementById('jukeboxTrackList');
+    if (!modal || !listEl) return;
+    listEl.innerHTML = JUKEBOX_TRACKS.map((t, i) =>
+        '<div class="jukebox-track-row" data-index="' + i + '" style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; margin-bottom:6px; background:rgba(0,0,0,0.3); border-radius:8px; cursor:pointer;">' +
+        '<span>' + t.name + '</span>' +
+        '<span class="jukebox-track-status" data-index="' + i + '"></span></div>'
+    ).join('');
+    listEl.querySelectorAll('.jukebox-track-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const idx = parseInt(row.dataset.index, 10);
+            playJukeboxTrack(idx);
+            updateJukeboxPlayingUI();
+        });
+    });
+    modal.classList.remove('hidden');
+}
+
+function stopJukeboxAudio() {
+    if (jukeboxAudio) {
+        jukeboxAudio.pause();
+        jukeboxAudio.currentTime = 0;
+        jukeboxAudio = null;
+    }
+    currentJukeboxTrackIndex = -1;
+}
+
+function playJukeboxTrack(index) {
+    if (index < 0 || index >= JUKEBOX_TRACKS.length) return;
+    stopJukeboxAudio();
+    const track = JUKEBOX_TRACKS[index];
+    jukeboxAudio = new Audio(track.src);
+    jukeboxAudio.loop = true;
+    jukeboxAudio.volume = 0.5;
+    jukeboxAudio.play().catch(() => {});
+    currentJukeboxTrackIndex = index;
+}
+
+function updateJukeboxPlayingUI() {
+    document.querySelectorAll('.jukebox-track-status').forEach(el => {
+        const idx = parseInt(el.dataset.index, 10);
+        el.textContent = idx === currentJukeboxTrackIndex ? '🔊 재생 중' : '';
+    });
+}
+
+function closeJukeboxModal() {
+    stopJukeboxAudio();
+    document.getElementById('jukeboxModal')?.classList.add('hidden');
+}
+
+// ---------- 우편함 (공식 계정 → 전체 유저 편지) ----------
+async function openMailboxModal() {
+    const modal = document.getElementById('mailboxModal');
+    if (modal) modal.classList.remove('hidden');
+    await refreshMailboxList();
+}
+
+async function refreshMailboxList() {
+    const listEl = document.getElementById('mailboxLetterList');
+    const formSection = document.getElementById('mailboxFormSection');
+    const writeArea = document.getElementById('mailboxWriteText');
+    const sendBtn = document.getElementById('mailboxSendBtn');
+    const msgEl = document.getElementById('mailboxMessage');
+    const friendSection = document.getElementById('mailboxFriendSection');
+    const friendSelect = document.getElementById('mailboxFriendSelect');
+    const friendLetterList = document.getElementById('mailboxFriendLetterList');
+    if (!listEl) return;
+    const isOfficial = currentAccount === CHAT_OFFICIAL_ACCOUNT;
+    const isUser = currentAccount && !isGuestAccount() && !isOfficial;
+    if (formSection) formSection.style.display = isOfficial ? '' : 'none';
+    if (sendBtn) sendBtn.style.display = isOfficial ? '' : 'none';
+    if (writeArea) writeArea.style.display = isOfficial ? '' : 'none';
+    if (friendSection) friendSection.style.display = isUser ? '' : 'none';
+    if (isUser && friendSelect) {
+        const friends = await getFriends(currentAccount);
+        friendSelect.innerHTML = '<option value="">친구 선택</option>' + friends.map(f => '<option value="' + escapeHtml(f) + '">' + escapeHtml(f) + '</option>').join('');
+    }
+    if (isUser && friendLetterList) {
+        try {
+            const friendLetters = await getFriendMail(currentAccount);
+            if (friendLetters.length === 0) {
+                friendLetterList.innerHTML = '<p style="color:#888; font-size:0.9rem;">받은 편지가 없습니다.</p>';
+            } else {
+                friendLetterList.innerHTML = friendLetters.slice().reverse().map(l => {
+                    const dateStr = new Date(l.at).toLocaleString('ko-KR');
+                    return '<div class="mailbox-letter" style="padding:8px 10px; margin-bottom:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:4px solid rgba(100,200,255,0.6);">' +
+                        '<div style="font-size:0.85rem; color:#b8b8ff; margin-bottom:4px;">' + escapeHtml(l.from || '') + ' · ' + dateStr + '</div>' +
+                        '<div style="white-space:pre-wrap; word-break:break-all; font-size:0.9rem;">' + escapeHtml(l.text || '') + '</div></div>';
+                }).join('');
+            }
+        } catch (e) {
+            friendLetterList.innerHTML = '<p style="color:#ff6b6b; font-size:0.9rem;">불러올 수 없습니다.</p>';
+        }
+    }
+    listEl.innerHTML = '<p style="color:#888;">불러오는 중...</p>';
+    try {
+        const letters = await getBroadcastLetters();
+        if (letters.length === 0) {
+            listEl.innerHTML = '<p style="color:#888;">공지 편지가 없습니다.</p>';
+        } else {
+            const reversed = letters.slice().reverse();
+            listEl.innerHTML = reversed.map(l => {
+                const dateStr = new Date(l.at).toLocaleString('ko-KR');
+                const editedStr = l.editedAt ? ' (수정: ' + new Date(l.editedAt).toLocaleString('ko-KR') + ')' : '';
+                const editBtn = isOfficial ? '<button type="button" class="btn btn-small mailbox-edit-btn" data-letter-id="' + escapeHtml(l.id || '') + '">수정</button>' : '';
+                return '<div class="mailbox-letter" style="padding:10px 12px; margin-bottom:8px; background:rgba(0,0,0,0.3); border-radius:8px; border-left:4px solid rgba(138,43,226,0.6);">' +
+                    '<div style="font-size:0.85rem; color:#b8b8ff; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">' +
+                    '<span>' + escapeHtml(l.from || '') + ' · ' + dateStr + editedStr + '</span>' + editBtn + '</div>' +
+                    '<div class="mailbox-letter-body" style="white-space:pre-wrap; word-break:break-all;">' + escapeHtml(l.text || '') + '</div></div>';
+            }).join('');
+            listEl.querySelectorAll('.mailbox-edit-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.dataset.letterId;
+                    if (!id) return;
+                    const letters = await getBroadcastLetters();
+                    const letter = letters.find(l => l.id === id);
+                    if (!letter) { alert('편지를 찾을 수 없습니다.'); return; }
+                    const newText = prompt('편지 내용 수정 (500자까지)', letter.text || '');
+                    if (newText === null) return;
+                    const r = await updateBroadcastLetter(id, newText);
+                    alert(r.message || '');
+                    if (r.ok) await refreshMailboxList();
+                });
+            });
+        }
+    } catch (e) {
+        listEl.innerHTML = '<p style="color:#ff6b6b;">편지를 불러올 수 없습니다.</p>';
+    }
+}
+
+async function sendMailboxLetter() {
+    const writeArea = document.getElementById('mailboxWriteText');
+    const msgEl = document.getElementById('mailboxMessage');
+    if (!writeArea) return;
+    const text = writeArea.value.trim();
+    const r = await addBroadcastLetter(text);
+    if (msgEl) msgEl.textContent = r.message || '';
+    if (r.ok) {
+        writeArea.value = '';
+        await refreshMailboxList();
+    }
+}
+
+async function sendFriendMailFromUI() {
+    const friendSelect = document.getElementById('mailboxFriendSelect');
+    const writeArea = document.getElementById('mailboxFriendWriteText');
+    const msgEl = document.getElementById('mailboxFriendMessage');
+    if (!friendSelect || !writeArea) return;
+    const toAccount = (friendSelect.value || '').trim();
+    if (!toAccount) {
+        if (msgEl) msgEl.textContent = '친구를 선택해 주세요.';
+        return;
+    }
+    const text = writeArea.value.trim();
+    const r = await sendFriendMail(toAccount, text);
+    if (msgEl) msgEl.textContent = r.message || '';
+    if (r.ok) {
+        writeArea.value = '';
+        await refreshMailboxList();
+    }
+}
+
+function closeMailboxModal() {
+    document.getElementById('mailboxModal')?.classList.add('hidden');
+}
+
 function unlockAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3383,6 +3567,62 @@ function getChatRoomId(a, b) {
 }
 
 const CHAT_OFFICIAL_ACCOUNT = '벽돌깨기rpg공식계정';
+const BROADCAST_MAIL_MAX = 100;
+const FRIEND_MAIL_MAX = 50;
+
+async function getBroadcastLetters() {
+    const data = await getGameDoc();
+    const list = data.broadcastLetters;
+    return Array.isArray(list) ? list : [];
+}
+
+async function addBroadcastLetter(text) {
+    if (currentAccount !== CHAT_OFFICIAL_ACCOUNT) return { ok: false, message: '공식 계정만 보낼 수 있습니다.' };
+    const trimmed = String(text).trim().slice(0, 500);
+    if (!trimmed) return { ok: false, message: '내용을 입력해 주세요.' };
+    const data = await getGameDoc();
+    let list = Array.isArray(data.broadcastLetters) ? data.broadcastLetters : [];
+    list.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), from: CHAT_OFFICIAL_ACCOUNT, text: trimmed, at: Date.now() });
+    if (list.length > BROADCAST_MAIL_MAX) list = list.slice(-BROADCAST_MAIL_MAX);
+    await withTimeout(window.firestoreSetDoc({ broadcastLetters: list }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true, message: '전체 유저에게 편지를 보냈습니다.' };
+}
+
+async function updateBroadcastLetter(id, text) {
+    if (currentAccount !== CHAT_OFFICIAL_ACCOUNT) return { ok: false, message: '공식 계정만 수정할 수 있습니다.' };
+    const trimmed = String(text).trim().slice(0, 500);
+    if (!trimmed) return { ok: false, message: '내용을 입력해 주세요.' };
+    const data = await getGameDoc();
+    let list = Array.isArray(data.broadcastLetters) ? data.broadcastLetters : [];
+    const idx = list.findIndex(l => l.id === id);
+    if (idx < 0) return { ok: false, message: '해당 편지를 찾을 수 없습니다.' };
+    list[idx] = { ...list[idx], text: trimmed, editedAt: Date.now() };
+    await withTimeout(window.firestoreSetDoc({ broadcastLetters: list }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true, message: '편지를 수정했습니다.' };
+}
+
+async function getFriendMail(accountId) {
+    const data = await getGameDoc();
+    const friendMail = data.friendMail && typeof data.friendMail === 'object' ? data.friendMail : {};
+    const list = friendMail[accountId];
+    return Array.isArray(list) ? list : [];
+}
+
+async function sendFriendMail(toAccount, text) {
+    if (!currentAccount || isGuestAccount()) return { ok: false, message: '로그인이 필요합니다.' };
+    const trimmed = String(text).trim().slice(0, 500);
+    if (!trimmed) return { ok: false, message: '내용을 입력해 주세요.' };
+    const friends = await getFriends(currentAccount);
+    if (!friends.includes(toAccount)) return { ok: false, message: '친구에게만 편지를 보낼 수 있습니다.' };
+    const data = await getGameDoc();
+    const friendMail = (data.friendMail && typeof data.friendMail === 'object') ? { ...data.friendMail } : {};
+    if (!Array.isArray(friendMail[toAccount])) friendMail[toAccount] = [];
+    friendMail[toAccount].push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), from: currentAccount, text: trimmed, at: Date.now() });
+    if (friendMail[toAccount].length > FRIEND_MAIL_MAX) friendMail[toAccount] = friendMail[toAccount].slice(-FRIEND_MAIL_MAX);
+    await withTimeout(window.firestoreSetDoc({ friendMail }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true, message: toAccount + ' 님에게 편지를 보냈습니다.' };
+}
+
 const CHAT_VIOLATION_LIMIT = 5;
 
 async function getFriendsData() {
@@ -3610,6 +3850,65 @@ const EQUIPMENT_ITEMS = [
     { id: 'shield', name: '방패', desc: '화면 클릭 시 보스·부하몬스터 공격 막기', price: 1895, emoji: '🛡️' }
 ];
 
+// ---------- 출석 체크 (연속 접속 1~6일 보상, 6일 후 1일차로 순환) ----------
+const ATTENDANCE_REWARDS = [
+    { day: 1, coins: 300, label: '300 코인' },
+    { day: 2, coins: 800, label: '800 코인' },
+    { day: 3, coins: 1000, label: '1000 코인' },
+    { day: 4, coins: 2000, label: '2000 코인' },
+    { day: 5, admin: true, label: '1일 관리자 권한' },
+    { day: 6, coins: 2000, label: '2000 코인' }
+];
+
+function isAdmin() {
+    if (currentAccount === CHAT_OFFICIAL_ACCOUNT) return true;
+    const until = options.adminUntil;
+    return typeof until === 'number' && until > Date.now();
+}
+
+async function processAttendance() {
+    if (!currentAccount || isGuestAccount()) return null;
+    const today = getTodayKey();
+    const last = options.lastAttendanceDate || '';
+    let streak = Math.max(1, Math.min(6, (options.attendanceStreak || 0)));
+    if (last === today) return { given: false, day: streak };
+    const yesterday = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    if (last === yesterday) {
+        streak = (streak % 6) + 1;
+    } else {
+        streak = 1;
+    }
+    const reward = ATTENDANCE_REWARDS[streak - 1];
+    if (!reward) return null;
+    if (reward.coins) {
+        coins = (options.coins ?? coins ?? 0) + reward.coins;
+        options.coins = coins;
+        setMaxCoins(Math.max(getMaxCoins(), coins));
+    }
+    if (reward.admin) {
+        options.adminUntil = Date.now() + 24 * 60 * 60 * 1000;
+    }
+    options.lastAttendanceDate = today;
+    options.attendanceStreak = streak;
+    await saveOptionsToAccount();
+    updateCoinsUI(coins);
+    return { given: true, day: streak, label: reward.label };
+}
+
+function showAttendanceResult(result) {
+    if (!result || !result.given) return;
+    const el = document.getElementById('attendanceResultOverlay');
+    const textEl = document.getElementById('attendanceResultText');
+    if (!el || !textEl) return;
+    textEl.textContent = '출석 체크! ' + result.day + '일차 - ' + result.label + ' 받았습니다.';
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
 // 계정별 옵션 저장/로드
 const DEFAULT_OPTIONS = {
     paddleSpeed: 12,
@@ -3651,6 +3950,9 @@ async function loadOptionsForAccount(accountName) {
         options.forgeHealth = saved.forgeHealth ?? 0;
         options.forgeAttack = saved.forgeAttack ?? 0;
         options.forgeDefense = saved.forgeDefense ?? 0;
+        options.lastAttendanceDate = saved.lastAttendanceDate ?? '';
+        options.attendanceStreak = saved.attendanceStreak ?? 0;
+        options.adminUntil = saved.adminUntil ?? 0;
     } else {
         Object.assign(options, DEFAULT_OPTIONS);
         options.coins = options.coins ?? 0;
@@ -3660,6 +3962,9 @@ async function loadOptionsForAccount(accountName) {
         options.forgeHealth = options.forgeHealth ?? 0;
         options.forgeAttack = options.forgeAttack ?? 0;
         options.forgeDefense = options.forgeDefense ?? 0;
+        options.lastAttendanceDate = options.lastAttendanceDate ?? '';
+        options.attendanceStreak = options.attendanceStreak ?? 0;
+        options.adminUntil = options.adminUntil ?? 0;
     }
     coins = options.coins;
     setMaxCoins(Math.max(getMaxCoins(), coins));
@@ -3667,6 +3972,8 @@ async function loadOptionsForAccount(accountName) {
     grantBackgroundCoins();
     const diffEl = document.getElementById('difficulty');
     if (diffEl) diffEl.value = options.difficulty || 'easy';
+    const attendanceResult = await processAttendance();
+    if (attendanceResult) showAttendanceResult(attendanceResult);
 }
 
 async function saveClearedStage1() {
@@ -3712,7 +4019,10 @@ async function saveOptionsToAccount() {
             consumables: options.consumables ?? {},
             forgeHealth: options.forgeHealth ?? 0,
             forgeAttack: options.forgeAttack ?? 0,
-            forgeDefense: options.forgeDefense ?? 0
+            forgeDefense: options.forgeDefense ?? 0,
+            lastAttendanceDate: options.lastAttendanceDate ?? '',
+            attendanceStreak: options.attendanceStreak ?? 0,
+            adminUntil: options.adminUntil ?? 0
         }
     });
 }
@@ -4314,8 +4624,33 @@ function openOptions() {
     initEquipmentShop();
     updateAchievementsList();
     renderDailyQuestsUI();
+    renderAttendanceUI();
     initFriendsSection();
     document.getElementById('optionsPanel')?.classList.remove('hidden');
+}
+
+function renderAttendanceUI() {
+    const statusEl = document.getElementById('attendanceStatus');
+    const listEl = document.getElementById('attendanceRewardsList');
+    if (!statusEl || !listEl) return;
+    const today = getTodayKey();
+    const last = options.lastAttendanceDate || '';
+    const streak = Math.max(0, Math.min(6, options.attendanceStreak || 0));
+    if (isGuestAccount() || !currentAccount) {
+        statusEl.textContent = '로그인하면 출석 체크를 할 수 있습니다.';
+        listEl.innerHTML = ATTENDANCE_REWARDS.map(r => r.day + '일: ' + r.label).join(' · ');
+        return;
+    }
+    if (last === today) {
+        statusEl.textContent = '오늘 출석 완료! (' + streak + '일차) · 내일 다시 와 주세요.';
+    } else {
+        statusEl.textContent = '연속 출석 ' + streak + '일 · 다음 출석 시 ' + (streak >= 6 ? '1' : (streak + 1)) + '일차 보상';
+    }
+    listEl.innerHTML = ATTENDANCE_REWARDS.map(r => r.day + '일: ' + r.label).join(' · ');
+    if (options.adminUntil > Date.now()) {
+        const untilStr = new Date(options.adminUntil).toLocaleString('ko-KR');
+        statusEl.innerHTML += '<br><span style="color:#ffd700;">관리자 권한: ' + untilStr + '까지</span>';
+    }
 }
 
 function renderDailyQuestsUI() {
@@ -4455,7 +4790,7 @@ async function initFriendsSection() {
         });
         const violatorsSection = document.getElementById('chatViolatorsSection');
         const violatorsList = document.getElementById('chatViolatorsList');
-        if (currentAccount === CHAT_OFFICIAL_ACCOUNT && violatorsSection && violatorsList) {
+        if (isAdmin() && violatorsSection && violatorsList) {
             violatorsSection.style.display = '';
             const v = await getChatViolations();
             const violators = Object.entries(v).filter(([, o]) => o && (o.count || 0) >= CHAT_VIOLATION_LIMIT);
@@ -5552,6 +5887,18 @@ const replayModalClose = document.getElementById('replayModalClose');
 if (replayModalClose) replayModalClose.addEventListener('click', closeReplayModal);
 const spectatorCloseBtn = document.getElementById('spectatorCloseBtn');
 if (spectatorCloseBtn) spectatorCloseBtn.addEventListener('click', closeSpectator);
+const jukeboxModeBtn = document.getElementById('jukeboxModeBtn');
+if (jukeboxModeBtn) jukeboxModeBtn.addEventListener('click', openJukeboxModal);
+const jukeboxModalClose = document.getElementById('jukeboxModalClose');
+if (jukeboxModalClose) jukeboxModalClose.addEventListener('click', closeJukeboxModal);
+const mailboxBtn = document.getElementById('mailboxBtn');
+if (mailboxBtn) mailboxBtn.addEventListener('click', openMailboxModal);
+const mailboxModalClose = document.getElementById('mailboxModalClose');
+if (mailboxModalClose) mailboxModalClose.addEventListener('click', closeMailboxModal);
+const mailboxSendBtn = document.getElementById('mailboxSendBtn');
+if (mailboxSendBtn) mailboxSendBtn.addEventListener('click', sendMailboxLetter);
+const mailboxFriendSendBtn = document.getElementById('mailboxFriendSendBtn');
+if (mailboxFriendSendBtn) mailboxFriendSendBtn.addEventListener('click', sendFriendMailFromUI);
 const spectatorCheerBtn = document.getElementById('spectatorCheerBtn');
 if (spectatorCheerBtn) spectatorCheerBtn.addEventListener('click', () => { if (spectatorFriendId) sendCheerToFriend(spectatorFriendId); });
 document.querySelectorAll('#resetMyRankingBtn, #resetMyRankingBtnWin').forEach(b => { if (b) b.addEventListener('click', handleResetMyRanking); });
