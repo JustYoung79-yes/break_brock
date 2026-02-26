@@ -199,6 +199,7 @@ let bulletAutoFireFrame = 0;
 const BULLET_AUTO_FIRE_INTERVAL = 12;
 let savedGameState = null;
 let currentAccount = '';
+let suspendedLoginAttempted = false;  // 정지된 계정으로 로그인 시도한 뒤 '계정 새로 만들기' 시 페널티
 const GUEST_ACCOUNT = '__guest__';
 function isGuestAccount() { return currentAccount === GUEST_ACCOUNT; }
 let bricksHitThisFrame = new Set();
@@ -234,6 +235,11 @@ let stage5ScytheRainUntil = 0;       // 스테이지5 제낫 비 패턴 종료 �
 let stage5ScytheRainTriggered = false;
 let stage5FallingScythes = [];      // { x, y, vy, w, h }
 let stage5ScytheRainSpawnTimer = 0;
+let stage5BossAt30Percent = false;   // 스테이지5 보스 체력 30% 이하 도달 시 true
+let stage5ScytheRain30NextAt = 0;    // 스테이지5 제낫 비(30%) 다음 트리거 시각 (20초 주기)
+let stage5ScytheRain30Until = 0;     // 스테이지5 제낫 비(30%) 종료 시각 (20초 지속)
+let stage5FallingScythes30 = [];     // 30% 제낫 비 낙하 제낫 (닿으면 체력 0.3 감소)
+let stage5ScytheRain30SpawnTimer = 0;
 let paddleScytheHitCooldownUntil = 0; // 제낫에 맞은 후 쿨다운
 let paddleBossTouchCooldownUntil = 0;  // 판-보스 접촉 시 생명 감소 쿨다운 (1초)
 let stage5IntroPhase = 0;  // 0=없음, 1=ㄳ터.png 대기, 2=6666666.png 후 스테이지5 시작
@@ -666,6 +672,8 @@ document.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 document.addEventListener('keydown', (e) => {
+    const isChatInput = e.target?.id === 'friendChatInput' || e.target?.closest?.('#friendChatModal');
+    if (e.key === ' ' && isChatInput) { keys[' '] = true; return; }
     if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
     if (coopMode && ['a', 'A', 'd', 'D'].includes(e.key)) e.preventDefault();
     if (e.key === ']') {
@@ -1091,6 +1099,7 @@ function hitBrick(brick, isBullet = false) {
         stage5ScytheRainUntil = Date.now() + 20000;
         stage5FallingScythes = [];
     }
+    if (brick.isBoss && currentStage === 5 && brick.hp <= 180) stage5BossAt30Percent = true;  // 600의 30%
     if (brick.isBoss && currentStage <= 4 && brick.hp === 10) ballDamageOverrideStage1to4 = 9;
     if (brick.isBoss && currentStage <= 4 && brick.hp <= 1 && !brick.mercyChoiceTriggered) {
         brick.mercyChoiceTriggered = true;
@@ -1639,30 +1648,35 @@ function updateBall(dt = 1) {
         }
     }
 
-    // 스테이지5 40초마다 화면 옆으로 누움 (6초 지속), 25초마다 화면 뒤집기
+    // 스테이지5 40초마다 화면 옆으로 누움 (6초 지속), 25초마다 화면 뒤집기 (제낫 비 중에는 화면 뒤집기/기울기 없음)
     if (currentStage === 5) {
         const now = Date.now();
         const el = document.querySelector('.game-main');
-        if (stage5ScreenTiltNextAt <= 0) stage5ScreenTiltNextAt = now + 40000;
-        if (now >= stage5ScreenTiltNextAt) {
-            stage5ScreenTiltNextAt = now + 40000;
-            stage5ScreenTiltUntil = now + 6000;
+        const scytheRainActive = now < stage5ScytheRainUntil || now < stage5ScytheRain30Until;
+        if (scytheRainActive) {
+            if (el) el.style.transform = '';
+        } else {
+            if (stage5ScreenTiltNextAt <= 0) stage5ScreenTiltNextAt = now + 40000;
+            if (now >= stage5ScreenTiltNextAt) {
+                stage5ScreenTiltNextAt = now + 40000;
+                stage5ScreenTiltUntil = now + 6000;
+            }
+            if (now < stage5ScreenTiltUntil) {
+                if (el) el.style.transform = 'rotate(90deg)';
+            } else {
+                if (stage5ScreenFlipNextAt <= 0) stage5ScreenFlipNextAt = now + 25000;
+                if (now >= stage5ScreenFlipNextAt) {
+                    stage5ScreenFlipNextAt = now + 25000;
+                    stage5ScreenFlipped = !stage5ScreenFlipped;
+                }
+                if (el) el.style.transform = stage5ScreenFlipped ? 'rotate(180deg)' : '';
+            }
         }
         if (stage5BallTeleportNextAt <= 0) stage5BallTeleportNextAt = now + 10000;
         if (now >= stage5BallTeleportNextAt) {
             stage5BallTeleportNextAt = now + 10000;
             stage5BallTeleportUntil = now + 3000;
             stage5BallTeleportLastAt = 0;
-        }
-        if (now < stage5ScreenTiltUntil) {
-            if (el) el.style.transform = 'rotate(90deg)';
-        } else {
-            if (stage5ScreenFlipNextAt <= 0) stage5ScreenFlipNextAt = now + 25000;
-            if (now >= stage5ScreenFlipNextAt) {
-                stage5ScreenFlipNextAt = now + 25000;
-                stage5ScreenFlipped = !stage5ScreenFlipped;
-            }
-            if (el) el.style.transform = stage5ScreenFlipped ? 'rotate(180deg)' : '';
         }
     } else {
         if (stage5ScreenFlipped) {
@@ -1684,10 +1698,65 @@ function updateBall(dt = 1) {
         stage5ScytheRainTriggered = false;
         stage5FallingScythes = [];
         stage5ScytheRainSpawnTimer = 0;
+        stage5BossAt30Percent = false;
+        stage5ScytheRain30NextAt = 0;
+        stage5ScytheRain30Until = 0;
+        stage5FallingScythes30 = [];
+        stage5ScytheRain30SpawnTimer = 0;
         stage5IntroPhase = 0;
     }
 
     const stage5ScytheRainActive = currentStage === 5 && Date.now() < stage5ScytheRainUntil;
+    // 스테이지5 보스 체력 30% 이하: 20초마다 제낫 비 20초 지속, 닿으면 체력 0.3 감소
+    const stage5ScytheRain30Active = currentStage === 5 && stage5BossAt30Percent && Date.now() < stage5ScytheRain30Until;
+    if (currentStage === 5 && stage5BossAt30Percent) {
+        const now = Date.now();
+        if (stage5ScytheRain30NextAt <= 0 || now >= stage5ScytheRain30NextAt) {
+            stage5ScytheRain30NextAt = now + 20000;
+            stage5ScytheRain30Until = now + 20000;
+            stage5FallingScythes30 = [];
+            stage5ScytheRain30SpawnTimer = 0;
+        }
+    }
+    if (stage5ScytheRain30Active) {
+        stage5ScytheRain30SpawnTimer += dt;
+        if (stage5ScytheRain30SpawnTimer >= 8) {
+            stage5ScytheRain30SpawnTimer = 0;
+            const w = 44, h = 56;
+            stage5FallingScythes30.push({
+                x: Math.random() * Math.max(0, canvas.width - w),
+                y: -h,
+                vy: 3.5,
+                w, h
+            });
+        }
+        const now = Date.now();
+        for (let i = stage5FallingScythes30.length - 1; i >= 0; i--) {
+            const s = stage5FallingScythes30[i];
+            s.y += s.vy * dt;
+            if (s.y > canvas.height + s.h) {
+                stage5FallingScythes30.splice(i, 1);
+                continue;
+            }
+            if (s.y + s.h > paddle.y && s.y < paddle.y + paddle.height &&
+                s.x + s.w > paddle.x && s.x < paddle.x + paddle.width) {
+                if (shieldActiveUntil <= now) {
+                    bossBulletDamageAccum += 0.3;
+                    playHurtSound();
+                    updateLivesUI();
+                    const threshold = 1 + (options.forgeHealth ?? 0) * 0.2;
+                    while (bossBulletDamageAccum >= threshold) {
+                        bossBulletDamageAccum -= threshold;
+                        lives--;
+                        updateLivesUI();
+                        if (lives <= 0) handleDeath();
+                        else resetBall();
+                    }
+                }
+                stage5FallingScythes30.splice(i, 1);
+            }
+        }
+    }
     if (stage5ScytheRainActive) {
         stage5ScytheRainSpawnTimer += dt;
         if (stage5ScytheRainSpawnTimer >= 8) {
@@ -2672,6 +2741,11 @@ function draw() {
             ctx.drawImage(stage5ScytheImage, Math.floor(s.x), Math.floor(s.y), Math.floor(s.w), Math.floor(s.h));
         });
     }
+    if (currentStage === 5 && Date.now() < stage5ScytheRain30Until && stage5ScytheImage.complete && stage5ScytheImage.naturalWidth > 0) {
+        stage5FallingScythes30.forEach(s => {
+            ctx.drawImage(stage5ScytheImage, Math.floor(s.x), Math.floor(s.y), Math.floor(s.w), Math.floor(s.h));
+        });
+    }
     drawFallingItems();
     drawBullets();
     drawBall();
@@ -2752,7 +2826,7 @@ function draw() {
 
 function isAnyPauseOverlayVisible() {
     if (typeof document !== 'undefined' && document.hidden) return true;
-    const ids = ['optionsPanel', 'stageMsgOverlay', 'bossUpgradeOverlay', 'mercyAttackOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'rotateOverlay'];
+    const ids = ['optionsPanel', 'stageMsgOverlay', 'bossUpgradeOverlay', 'mercyAttackOverlay', 'passwordPromptModal', 'editAccountModal', 'findPasswordModal', 'createAccountModal', 'storageAdminModal', 'friendRankingModal', 'friendChatModal', 'rotateOverlay'];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el && !el.classList.contains('hidden')) return true;
@@ -3067,6 +3141,162 @@ async function deleteAccountData(name) {
 async function getAccount(name) {
     const accounts = await getAccounts();
     return accounts[name] || null;
+}
+
+// ----- 친구 / 친구 요청 / 채팅 (Firestore: friends, friendRequests, chat) -----
+const CHAT_ROOM_MAX_MESSAGES = 100;
+
+// 채팅 비속어 필터: 해당 단어는 글자 수만큼 #으로 표시
+const CHAT_BAD_WORDS = [
+    '시발', '씨발', 'ㅅㅂ', '시팔', '씨팔', '개새끼', '개세끼', '병신', '지랄', '니애미', '니엄마', '엠창', 'ㅂㅅ',
+    '븅신', '뻐큐', '바보', '멍청이', '느금마', '니얼굴',
+    'fuck', 'shit', 'damn', 'bitch', 'asshole', 'dick', 'cunt', 'fuk', 'sht', 'btch'
+];
+function filterBadWords(text) {
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    for (const word of CHAT_BAD_WORDS) {
+        if (!word) continue;
+        const repl = '#'.repeat(word.length);
+        const re = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        out = out.replace(re, repl);
+    }
+    return out;
+}
+
+function getChatRoomId(a, b) {
+    if (!a || !b) return '';
+    return [a, b].sort().join('|');
+}
+
+const CHAT_OFFICIAL_ACCOUNT = '벽돌깨기rpg공식계정';
+const CHAT_VIOLATION_LIMIT = 5;
+
+async function getFriendsData() {
+    const data = await getFirestoreGameData();
+    return {
+        friends: data.friends && typeof data.friends === 'object' ? data.friends : {},
+        friendRequests: data.friendRequests && typeof data.friendRequests === 'object' ? data.friendRequests : {},
+        chat: data.chat && typeof data.chat === 'object' ? data.chat : {},
+        chatViolations: data.chatViolations && typeof data.chatViolations === 'object' ? data.chatViolations : {}
+    };
+}
+
+async function getChatViolations() {
+    const data = await getFirestoreGameData();
+    return data.chatViolations && typeof data.chatViolations === 'object' ? data.chatViolations : {};
+}
+
+async function incrementChatViolation(accountName) {
+    const data = await getFirestoreGameData();
+    const v = data.chatViolations || {};
+    const cur = v[accountName] || { count: 0, suspendedUntil: 0 };
+    v[accountName] = { count: (cur.count || 0) + 1, suspendedUntil: cur.suspendedUntil || 0 };
+    await withTimeout(window.firestoreSetDoc({ chatViolations: v }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+}
+
+async function setChatSuspension(accountName, days) {
+    const data = await getFirestoreGameData();
+    const v = data.chatViolations || {};
+    const cur = v[accountName] || { count: 0, suspendedUntil: 0 };
+    v[accountName] = { count: cur.count || 0, suspendedUntil: Date.now() + days * 24 * 60 * 60 * 1000 };
+    await withTimeout(window.firestoreSetDoc({ chatViolations: v }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+}
+
+async function isChatSuspended(accountName) {
+    const v = await getChatViolations();
+    const cur = v[accountName];
+    return cur && cur.suspendedUntil > Date.now();
+}
+
+async function getFriends(accountName) {
+    const { friends } = await getFriendsData();
+    const list = friends[accountName];
+    return Array.isArray(list) ? list : [];
+}
+
+async function getFriendRequestsTo(accountName) {
+    const { friendRequests } = await getFriendsData();
+    const list = friendRequests[accountName];
+    return Array.isArray(list) ? list : [];
+}
+
+async function addFriendRequest(fromAccount, toAccount) {
+    if (!fromAccount || !toAccount || fromAccount === toAccount) return { ok: false, message: '잘못된 요청입니다.' };
+    const accounts = await getAccounts();
+    if (!accounts[toAccount]) return { ok: false, message: '해당 아이디를 가진 계정이 없습니다.' };
+    const { friendRequests, friends } = await getFriendsData();
+    const myFriends = Array.isArray(friends[fromAccount]) ? friends[fromAccount] : [];
+    if (myFriends.includes(toAccount)) return { ok: false, message: '이미 친구입니다.' };
+    const toList = Array.isArray(friendRequests[toAccount]) ? friendRequests[toAccount] : [];
+    if (toList.includes(fromAccount)) return { ok: false, message: '이미 친구 요청을 보냈습니다.' };
+    friendRequests[toAccount] = [...toList, fromAccount];
+    await withTimeout(window.firestoreSetDoc({ friendRequests }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true, message: '친구 요청을 보냈습니다.' };
+}
+
+async function acceptFriendRequest(accountName, fromAccount) {
+    const { friends, friendRequests } = await getFriendsData();
+    const reqList = Array.isArray(friendRequests[accountName]) ? friendRequests[accountName] : [];
+    if (!reqList.includes(fromAccount)) return { ok: false, message: '해당 요청이 없습니다.' };
+    friendRequests[accountName] = reqList.filter(id => id !== fromAccount);
+    friends[accountName] = [...(Array.isArray(friends[accountName]) ? friends[accountName] : []), fromAccount];
+    friends[fromAccount] = [...(Array.isArray(friends[fromAccount]) ? friends[fromAccount] : []), accountName];
+    await withTimeout(window.firestoreSetDoc({ friends, friendRequests }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true };
+}
+
+async function rejectFriendRequest(accountName, fromAccount) {
+    const { friendRequests } = await getFriendsData();
+    const reqList = Array.isArray(friendRequests[accountName]) ? friendRequests[accountName] : [];
+    friendRequests[accountName] = reqList.filter(id => id !== fromAccount);
+    await withTimeout(window.firestoreSetDoc({ friendRequests }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true };
+}
+
+async function removeFriend(accountName, friendName) {
+    const { friends } = await getFriendsData();
+    if (!Array.isArray(friends[accountName]) || !friends[accountName].includes(friendName)) return { ok: false };
+    friends[accountName] = friends[accountName].filter(id => id !== friendName);
+    friends[friendName] = Array.isArray(friends[friendName]) ? friends[friendName].filter(id => id !== accountName) : [];
+    await withTimeout(window.firestoreSetDoc({ friends }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true };
+}
+
+async function getChatMessages(roomId) {
+    const { chat } = await getFriendsData();
+    const list = chat[roomId];
+    return Array.isArray(list) ? list : [];
+}
+
+async function sendChatMessage(roomId, fromAccount, text) {
+    let trimmed = String(text).trim().slice(0, 200);
+    if (!trimmed) return { ok: false };
+    const suspended = await isChatSuspended(fromAccount);
+    if (suspended) {
+        const v = await getChatViolations();
+        const cur = v[fromAccount];
+        const until = cur?.suspendedUntil ? new Date(cur.suspendedUntil) : null;
+        const dayStr = until ? until.toLocaleDateString('ko-KR') : '';
+        return { ok: false, message: '채팅이 정지되었습니다.' + (dayStr ? ' (' + dayStr + '까지)' : '') };
+    }
+    const hadBadWord = filterBadWords(trimmed) !== trimmed;
+    if (hadBadWord) await incrementChatViolation(fromAccount);
+    trimmed = filterBadWords(trimmed);
+    const { chat } = await getFriendsData();
+    const list = Array.isArray(chat[roomId]) ? chat[roomId] : [];
+    list.push({ from: fromAccount, text: trimmed, at: Date.now() });
+    if (list.length > CHAT_ROOM_MAX_MESSAGES) list.splice(0, list.length - CHAT_ROOM_MAX_MESSAGES);
+    chat[roomId] = list;
+    await withTimeout(window.firestoreSetDoc({ chat }, { merge: true }), FIRESTORE_TIMEOUT_MS);
+    return { ok: true };
+}
+
+async function getFriendRanking(accountName) {
+    const [friends, ranking] = await Promise.all([getFriends(accountName), getRanking()]);
+    if (!friends.length) return [];
+    const friendSet = new Set(friends);
+    return ranking.filter(r => friendSet.has(r.account)).sort((a, b) => (b.score - a.score));
 }
 
 const MAX_CUSTOM_LEVELS = 100;
@@ -3757,6 +3987,7 @@ function openOptions() {
     initForgeShop();
     initEquipmentShop();
     updateAchievementsList();
+    initFriendsSection();
     document.getElementById('optionsPanel')?.classList.remove('hidden');
 }
 
@@ -3773,6 +4004,209 @@ function updateAchievementsList() {
         row.innerHTML = '<span style="font-size:1.2rem;">' + (done ? '✅' : '⬜') + '</span><div><strong>' + a.name + '</strong><br><span style="font-size:0.85rem; color:#b8b8ff;">' + a.desc + '</span></div>';
         container.appendChild(row);
     });
+}
+
+let currentChatFriend = '';
+let currentChatRoomId = '';
+
+async function initFriendsSection() {
+    const section = document.getElementById('friendsSection');
+    const addBtn = document.getElementById('friendAddBtn');
+    const addInput = document.getElementById('friendAddInput');
+    const addMsg = document.getElementById('friendAddMessage');
+    const requestsList = document.getElementById('friendRequestsList');
+    const friendsList = document.getElementById('friendsList');
+    if (!section || !addBtn || !requestsList || !friendsList) return;
+    if (isGuestAccount() || !currentAccount) {
+        addBtn.disabled = true;
+        if (addInput) addInput.placeholder = '로그인 후 이용 가능';
+        if (addMsg) addMsg.textContent = '';
+        requestsList.innerHTML = '<p style="color:#888; font-size:0.85rem;">로그인이 필요합니다.</p>';
+        friendsList.innerHTML = '<p style="color:#888; font-size:0.85rem;">로그인이 필요합니다.</p>';
+        return;
+    }
+    addBtn.disabled = false;
+    if (addInput) addInput.placeholder = '친구 아이디 입력';
+    try {
+        const [friends, requests] = await Promise.all([getFriends(currentAccount), getFriendRequestsTo(currentAccount)]);
+        requestsList.innerHTML = requests.length === 0
+            ? '<p style="color:#888; font-size:0.85rem;">받은 요청 없음</p>'
+            : requests.map(from => `<div style="display:flex; align-items:center; justify-content:space-between; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; margin-bottom:4px;">
+                <span>${escapeHtml(from)}</span>
+                <span>
+                    <button type="button" class="btn btn-small" data-friend-accept="${escapeHtml(from)}">수락</button>
+                    <button type="button" class="btn btn-small btn-outline" data-friend-reject="${escapeHtml(from)}">거절</button>
+                </span>
+            </div>`).join('');
+        friendsList.innerHTML = friends.length === 0
+            ? '<p style="color:#888; font-size:0.85rem;">친구 없음. 아이디로 친구 요청을 보내세요.</p>'
+            : friends.map(name => `<div style="display:flex; align-items:center; justify-content:space-between; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px;">
+                <span>${escapeHtml(name)}</span>
+                <span>
+                    <button type="button" class="btn btn-small" data-friend-chat="${escapeHtml(name)}">채팅</button>
+                    <button type="button" class="btn btn-small btn-outline" data-friend-remove="${escapeHtml(name)}">삭제</button>
+                </span>
+            </div>`).join('');
+        requestsList.querySelectorAll('[data-friend-accept]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const from = btn.dataset.friendAccept;
+                const r = await acceptFriendRequest(currentAccount, from);
+                if (r.ok) initFriendsSection();
+            });
+        });
+        requestsList.querySelectorAll('[data-friend-reject]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const from = btn.dataset.friendReject;
+                await rejectFriendRequest(currentAccount, from);
+                initFriendsSection();
+            });
+        });
+        friendsList.querySelectorAll('[data-friend-chat]').forEach(btn => {
+            btn.addEventListener('click', () => openFriendChat(btn.dataset.friendChat));
+        });
+        friendsList.querySelectorAll('[data-friend-remove]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm(btn.dataset.friendRemove + ' 님을 친구 목록에서 삭제할까요?')) return;
+                await removeFriend(currentAccount, btn.dataset.friendRemove);
+                initFriendsSection();
+            });
+        });
+        const violatorsSection = document.getElementById('chatViolatorsSection');
+        const violatorsList = document.getElementById('chatViolatorsList');
+        if (currentAccount === CHAT_OFFICIAL_ACCOUNT && violatorsSection && violatorsList) {
+            violatorsSection.style.display = '';
+            const v = await getChatViolations();
+            const violators = Object.entries(v).filter(([, o]) => o && (o.count || 0) >= CHAT_VIOLATION_LIMIT);
+            violatorsList.innerHTML = violators.length === 0
+                ? '<p style="color:#888; font-size:0.85rem;">비속어 5회 이상 계정 없음</p>'
+                : violators.map(([acc, o]) => {
+                    const count = o.count || 0;
+                    const daysOpts = [1, 2, 3, 4, 5, 6, 7, 8].map(d => `<option value="${d}">${d}일</option>`).join('');
+                    return `<div class="chat-violator-row" style="display:flex; align-items:center; justify-content:space-between; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; margin-bottom:4px;">
+                        <span>${escapeHtml(acc)} (${count}회)</span>
+                        <span>
+                            <select class="chat-suspend-days" style="margin-right:6px; padding:4px;">${daysOpts}</select>
+                            <button type="button" class="btn btn-small" data-violator-account="${escapeHtml(acc)}">정지</button>
+                        </span>
+                    </div>`;
+                }).join('');
+            violatorsList.querySelectorAll('[data-violator-account]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const acc = btn.dataset.violatorAccount;
+                    const row = btn.closest('.chat-violator-row');
+                    const select = row?.querySelector('.chat-suspend-days');
+                    const days = select ? parseInt(select.value, 10) || 1 : 1;
+                    await setChatSuspension(acc, days);
+                    alert(acc + ' 계정을 ' + days + '일 채팅 정지했습니다.');
+                    initFriendsSection();
+                });
+            });
+        } else if (violatorsSection) {
+            violatorsSection.style.display = 'none';
+        }
+    } catch (e) {
+        if (addMsg) addMsg.textContent = '불러오기 실패: ' + (e.message || '');
+        friendsList.innerHTML = '<p style="color:#ff6b6b;">불러오기 실패</p>';
+    }
+}
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+async function openFriendChat(friendName) {
+    if (typeof closeOptions === 'function') closeOptions();
+    currentChatFriend = friendName;
+    currentChatRoomId = getChatRoomId(currentAccount, friendName);
+    const modal = document.getElementById('friendChatModal');
+    const title = document.getElementById('friendChatTitle');
+    if (title) title.textContent = '💬 ' + friendName + ' 님과 채팅';
+    if (modal) modal.classList.remove('hidden');
+    await refreshFriendChatMessages();
+    document.getElementById('friendChatInput')?.focus();
+}
+
+async function refreshFriendChatMessages() {
+    const el = document.getElementById('friendChatMessages');
+    if (!el || !currentChatRoomId) return;
+    try {
+        const messages = await getChatMessages(currentChatRoomId);
+        el.innerHTML = messages.length === 0
+            ? '<p style="color:#888;">대화 내용이 없습니다.</p>'
+            : messages.map(m => {
+                const isMe = m.from === currentAccount;
+                const time = new Date(m.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                return `<div style="margin-bottom:8px;"><span style="color:${isMe ? '#8af' : '#b8b8ff'};">${escapeHtml(m.from)}</span> <span style="font-size:0.8rem; color:#888;">${time}</span><br><span style="word-break:break-all;">${escapeHtml(filterBadWords(m.text))}</span></div>`;
+            }).join('');
+        el.scrollTop = el.scrollHeight;
+    } catch (e) {
+        el.innerHTML = '<p style="color:#ff6b6b;">메시지 불러오기 실패</p>';
+    }
+}
+
+function closeFriendChat() {
+    currentChatFriend = '';
+    currentChatRoomId = '';
+    document.getElementById('friendChatModal')?.classList.add('hidden');
+}
+
+async function initFriendsSectionAndBind() {
+    document.getElementById('friendAddBtn')?.addEventListener('click', async () => {
+        const input = document.getElementById('friendAddInput');
+        const msg = document.getElementById('friendAddMessage');
+        const id = (input?.value || '').trim();
+        if (!id) { if (msg) msg.textContent = '아이디를 입력하세요.'; return; }
+        if (id === currentAccount) { if (msg) msg.textContent = '자기 자신은 추가할 수 없습니다.'; return; }
+        if (isGuestAccount()) { if (msg) msg.textContent = '로그인이 필요합니다.'; return; }
+        msg.textContent = '요청 중...';
+        const r = await addFriendRequest(currentAccount, id);
+        if (msg) msg.textContent = r.message || (r.ok ? '요청을 보냈습니다.' : '실패');
+        if (input) input.value = '';
+        if (r.ok) initFriendsSection();
+    });
+    document.getElementById('friendRankingBtn')?.addEventListener('click', async () => {
+        if (isGuestAccount()) { alert('로그인이 필요합니다.'); return; }
+        const modal = document.getElementById('friendRankingModal');
+        const listEl = document.getElementById('friendRankingList');
+        if (modal) modal.classList.remove('hidden');
+        if (listEl) listEl.innerHTML = '<p>불러오는 중...</p>';
+        try {
+            const ranking = await getFriendRanking(currentAccount);
+            if (listEl) {
+                listEl.innerHTML = ranking.length === 0
+                    ? '<p style="color:#888;">친구가 없거나 친구의 순위 기록이 없습니다.</p>'
+                    : '<table style="width:100%; border-collapse:collapse;"><tr style="border-bottom:1px solid rgba(255,255,255,0.2);"><th style="text-align:left; padding:6px;">순위</th><th style="text-align:left; padding:6px;">아이디</th><th style="text-align:right; padding:6px;">점수</th></tr>' +
+                    ranking.map((r, i) => `<tr style="border-bottom:1px solid rgba(255,255,255,0.1);"><td style="padding:6px;">${i + 1}</td><td style="padding:6px;">${escapeHtml(r.account)}</td><td style="padding:6px; text-align:right;">${Number(r.score).toLocaleString()}</td></tr>`).join('') + '</table>';
+            }
+        } catch (e) {
+            if (listEl) listEl.innerHTML = '<p style="color:#ff6b6b;">불러오기 실패</p>';
+        }
+    });
+    document.getElementById('friendRankingCloseBtn')?.addEventListener('click', () => document.getElementById('friendRankingModal')?.classList.add('hidden'));
+    document.getElementById('friendChatSendBtn')?.addEventListener('click', async () => {
+        const input = document.getElementById('friendChatInput');
+        const text = input?.value?.trim();
+        if (!text || !currentChatRoomId) return;
+        const r = await sendChatMessage(currentChatRoomId, currentAccount, text);
+        if (r.ok) {
+            if (input) input.value = '';
+            await refreshFriendChatMessages();
+        } else if (r.message) {
+            alert(r.message);
+        }
+    });
+    document.getElementById('friendChatCloseBtn')?.addEventListener('click', closeFriendChat);
+    document.getElementById('friendChatInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('friendChatSendBtn')?.click();
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFriendsSectionAndBind);
+} else {
+    initFriendsSectionAndBind();
 }
 
 const optionsBtn = document.getElementById('optionsBtn');
@@ -4531,8 +4965,31 @@ if (continueBtn) continueBtn.addEventListener('click', () => {
 });
 const newGameBtn = document.getElementById('newGameBtn');
 if (newGameBtn) newGameBtn.addEventListener('click', () => {
-    document.getElementById('gameOverOverlay')?.classList.remove('game-over-visible');
-    restartGame();
+    const overlay = document.getElementById('gameOverOverlay');
+    const buttonsEl = document.getElementById('gameOverButtons');
+    const rankingEl = document.getElementById('rankingDisplay');
+    const countdownEl = document.getElementById('gameOverQuitCountdown');
+    if (buttonsEl) buttonsEl.classList.add('game-over-buttons-hidden');
+    if (rankingEl) rankingEl.classList.remove('game-over-hide');
+    if (countdownEl) {
+        countdownEl.classList.remove('game-over-hide');
+        let left = 20;
+        countdownEl.textContent = left + '초 후 게임이 종료됩니다.';
+        const tick = setInterval(() => {
+            left--;
+            if (countdownEl) countdownEl.textContent = left > 0 ? left + '초 후 게임이 종료됩니다.' : '게임을 종료합니다...';
+            if (left <= 0) {
+                clearInterval(tick);
+                if (overlay) overlay.classList.remove('game-over-visible');
+                restartGame();
+            }
+        }, 1000);
+    } else {
+        setTimeout(() => {
+            if (overlay) overlay.classList.remove('game-over-visible');
+            restartGame();
+        }, 20000);
+    }
 });
 const gameOverBackToLoginBtn = document.getElementById('gameOverBackToLoginBtn');
 if (gameOverBackToLoginBtn) gameOverBackToLoginBtn.addEventListener('click', () => {
@@ -4594,6 +5051,15 @@ async function doLogin() {
         alert('비밀번호가 올바르지 않습니다.');
         return;
     }
+    try {
+        const suspended = await isChatSuspended(name);
+        if (suspended) {
+            suspendedLoginAttempted = true;
+            alert('정지 당하셨습니다.');
+            return;
+        }
+    } catch (e) { /* 정지 정보 조회 실패 시 로그인 허용 */ }
+    suspendedLoginAttempted = false;
     currentAccount = name;
     await loadOptionsForAccount(name);
     stopLoginBGM();
@@ -4678,7 +5144,102 @@ function handleDeleteAccount() {
     });
 }
 
+function playScreamSound() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        const t = audioCtx.currentTime;
+        const duration = 1.8;
+        const masterGain = audioCtx.createGain();
+        masterGain.gain.setValueAtTime(0, t);
+        masterGain.gain.linearRampToValueAtTime(0.55, t + 0.03);
+        masterGain.gain.setValueAtTime(0.5, t + 0.1);
+        masterGain.gain.exponentialRampToValueAtTime(0.4, t + 0.6);
+        masterGain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        masterGain.connect(audioCtx.destination);
+        const fundFreq = 380;
+        const oscTypes = ['sawtooth', 'square', 'sawtooth'];
+        [1, 1.8, 2.4, 3.2, 4.1].forEach((mult, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = oscTypes[i % 3];
+            osc.frequency.setValueAtTime(fundFreq * mult, t);
+            osc.frequency.setValueAtTime(fundFreq * mult * 1.15, t + 0.05);
+            osc.frequency.exponentialRampToValueAtTime(fundFreq * mult * 0.7, t + 0.4);
+            osc.frequency.setValueAtTime(fundFreq * mult * 0.75, t + 0.5);
+            osc.frequency.exponentialRampToValueAtTime(fundFreq * mult * 0.5, t + duration);
+            gain.gain.setValueAtTime(0.2 / mult, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+            osc.connect(gain);
+            gain.connect(masterGain);
+            osc.start(t);
+            osc.stop(t + duration);
+        });
+        const bufferSize = audioCtx.sampleRate * duration;
+        const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.7;
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const noiseFilter = audioCtx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.value = 2200;
+        noiseFilter.Q.value = 1.2;
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.setValueAtTime(0.35, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(masterGain);
+        noise.start(t);
+    } catch (e) {}
+}
+
+function showSuspendedPunishmentAndExit() {
+    stopLoginBGM();
+    const overlay = document.createElement('div');
+    overlay.id = 'suspendedPunishmentOverlay';
+    overlay.style.cssText = 'position:fixed; inset:0; z-index:999999; background:#000; display:flex; align-items:center; justify-content:center;';
+    const videoSrc = PATH_BASE + '동영상/화면 치지직.mp4';
+    const video = document.createElement('video');
+    video.style.cssText = 'max-width:100%; max-height:100%; width:100%; height:100%; object-fit:contain;';
+    video.playsInline = true;
+    video.muted = false;
+    video.autoplay = true;
+    video.src = videoSrc;
+    const img = new Image();
+    img.alt = '';
+    img.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; display:none;';
+    img.src = PATH.image + '666666.png';
+    img.onerror = () => { img.src = PATH.image + '6666666.png'; };
+    function doExit() {
+        try { window.close(); } catch (e) {}
+        overlay.innerHTML = '<p style="color:#fff; font-size:1.5rem;">게임이 종료되었습니다.</p>';
+    }
+    video.onended = doExit;
+    video.onerror = () => {
+        img.style.display = 'block';
+        video.style.display = 'none';
+        playScreamSound();
+        setTimeout(doExit, 2800);
+    };
+    overlay.appendChild(video);
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+    playScreamSound();
+    video.play().catch(() => {
+        img.style.display = 'block';
+        video.style.display = 'none';
+        setTimeout(doExit, 2800);
+    });
+    setTimeout(doExit, 60000);
+}
+
 async function showCreateAccountModal() {
+    if (suspendedLoginAttempted) {
+        showSuspendedPunishmentAndExit();
+        return;
+    }
     try {
         await refreshAccountList();
         ['newAccountName', 'newPassword', 'newPasswordConfirm', 'newQuestion', 'newHint', 'newAnswer'].forEach(id => {

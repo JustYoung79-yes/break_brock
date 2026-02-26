@@ -755,6 +755,7 @@
             <p id="gameOver100DeathText" class="game-over-hide" style="display:none; font-size:1.1rem; color:#ffb8b8; margin-bottom:10px;"></p>
             <p class="game-over-hide">최종 점수: <span id="finalScore">0</span></p>
             <div id="gameOverFirstPlace" class="first-place hidden game-over-hide"></div>
+            <p id="gameOverQuitCountdown" class="game-over-hide" style="font-size:0.95rem; color:#b8b8ff; margin-bottom:10px;"></p>
             <div id="rankingDisplay" class="ranking-box game-over-hide"></div>
             <div id="gameOverButtons" class="overlay-buttons game-over-buttons-hidden" style="flex-wrap:wrap; gap:10px;">
                 <button class="btn" id="continueBtn">이어서 하기</button>
@@ -970,6 +971,31 @@
                 <p style="font-size:0.9rem; color:#b8b8ff;">달성한 발전과제를 확인하세요</p>
                 <div id="achievementsList" style="display:flex; flex-direction:column; gap:6px; margin-top:8px;"></div>
             </div>
+            <div class="shop-section" id="friendsSection" style="color:#fff;">
+                <h3>👥 친구</h3>
+                <p style="font-size:0.9rem; color:#b8b8ff;">친구를 추가하고 친구 순위를 보거나 채팅하세요. (로그인 필요)</p>
+                <div style="margin-top:8px;">
+                    <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+                        <input type="text" id="friendAddInput" class="account-input" placeholder="친구 아이디 입력" maxlength="20" autocomplete="off" style="flex:1; max-width:180px;">
+                        <button type="button" class="btn btn-small" id="friendAddBtn">친구 요청</button>
+                    </div>
+                    <p id="friendAddMessage" style="font-size:0.85rem; color:#ffd700; margin-bottom:6px; min-height:1.2em;"></p>
+                    <details style="margin-bottom:6px;">
+                        <summary style="cursor:pointer; font-weight:bold;">받은 친구 요청</summary>
+                        <div id="friendRequestsList" style="margin-top:6px; max-height:120px; overflow-y:auto;"></div>
+                    </details>
+                    <div style="margin-bottom:6px;">
+                        <strong>친구 목록</strong>
+                        <div id="friendsList" style="margin-top:6px; max-height:140px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;"></div>
+                    </div>
+                    <button type="button" class="btn btn-small btn-outline" id="friendRankingBtn" style="margin-top:6px;">📊 친구 순위</button>
+                    <details id="chatViolatorsSection" style="margin-top:10px; display:none;">
+                        <summary style="cursor:pointer; font-weight:bold;">🔒 채팅 정지 관리 (공식 계정)</summary>
+                        <p style="font-size:0.85rem; color:#b8b8ff; margin:6px 0;">비속어 5회 이상 계정을 1~8일 채팅 정지할 수 있습니다.</p>
+                        <div id="chatViolatorsList" style="max-height:160px; overflow-y:auto;"></div>
+                    </details>
+                </div>
+            </div>
             <div class="option-row" style="flex-direction:column; align-items:stretch;">
                 <details style="cursor:pointer;">
                     <summary style="font-weight:bold; padding:8px 0;">📋 업데이트 내역</summary>
@@ -1024,6 +1050,25 @@
                 <button type="button" id="storageAdminBtn" title="온라인 저장소 관리"></button>
             </div>
         </div>
+    </div>
+
+    <!-- 친구 순위 모달 -->
+    <div id="friendRankingModal" class="overlay hidden" style="z-index:9998;">
+        <h2>📊 친구 순위</h2>
+        <p style="font-size:0.9rem; color:#b8b8ff; margin:8px 0;">친구들의 최고 점수 순위입니다.</p>
+        <div id="friendRankingList" style="max-height:320px; overflow-y:auto; text-align:left; margin:12px 0; padding:8px; background:rgba(0,0,0,0.3); border-radius:8px;"></div>
+        <button type="button" class="btn btn-outline" id="friendRankingCloseBtn">닫기</button>
+    </div>
+
+    <!-- 친구 채팅 모달 -->
+    <div id="friendChatModal" class="overlay hidden" style="z-index:9998;">
+        <h2 id="friendChatTitle">💬 채팅</h2>
+        <div id="friendChatMessages" style="height:240px; overflow-y:auto; text-align:left; margin:10px 0; padding:10px; background:rgba(0,0,0,0.4); border-radius:8px; font-size:0.9rem;"></div>
+        <div style="display:flex; gap:8px;">
+            <input type="text" id="friendChatInput" class="account-input" placeholder="메시지 입력" maxlength="200" autocomplete="off" style="flex:1;">
+            <button type="button" class="btn" id="friendChatSendBtn">전송</button>
+        </div>
+        <button type="button" class="btn btn-small btn-outline" style="margin-top:10px;" id="friendChatCloseBtn">닫기</button>
     </div>
 
     <!-- 온라인 저장소 관리 모달 -->
